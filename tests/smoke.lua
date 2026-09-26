@@ -642,13 +642,16 @@ local rival_dialog=plugin.dialog
 for i=1,5 do
     local b=rival_dialog.buttons[i][1]
     assert(b.hold_callback)
+    assert(b.text:find("ⓘ",1,true), "long-press rival choice has no info marker")
     b.hold_callback()
-    assert(plugin.dialog==rival_dialog and plugin.overlay.title:find(b.text,1,true))
+    local label=b.text:gsub("   ⓘ$","")
+    assert(plugin.dialog==rival_dialog and plugin.overlay.title:find(label,1,true))
 end
 plugin:closeOverlay(false)
 plugin:configureNewGame("Mordred")
 local setup_dialog=plugin.dialog
 for _,b in ipairs({setup_dialog.buttons[2][1],setup_dialog.buttons[3][1],setup_dialog.buttons[4][1],setup_dialog.buttons[4][2]}) do
+    assert(b.text:find("ⓘ",1,true), "long-press setup choice has no info marker")
     b.hold_callback()
     assert(plugin.dialog==setup_dialog and #plugin.overlay.text>80)
     assert(plugin.pending_setup.game_difficulty=="Normal" and not plugin.pending_setup.foresight and not plugin.pending_setup.fluid_round)

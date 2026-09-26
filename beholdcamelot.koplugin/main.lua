@@ -21,6 +21,8 @@ local BeholdCamelot = WidgetContainer:extend{
     is_doc_only = false,
 }
 
+local HOLD_INFO = "   ⓘ"
+
 local CARDS = {
     {id="crafts", title="Crafts", names={"Local Craft","Skilled Artisans","Master Builders","Royal Works"}, start=1},
     {id="host", title="Host", names={"Armed Retainers","Household Knights","Royal Host","Assembled Host"}, start=1},
@@ -452,8 +454,13 @@ function BeholdCamelotGameScreen:drawButton(bb, button, x, y, w, h, scale)
     local shade = button.enabled == false and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE
     bb:paintRect(x, y, w, h, shade)
     bb:paintBorder(x, y, w, h, border, Blitbuffer.COLOR_BLACK)
-    self:drawText(bb, button.text, x + 3, y + 2, w - 6, h - 4, 10, true,
+    local icon_w = button.hold_callback and math.max(14, math.floor(16 * scale)) or 0
+    self:drawText(bb, button.text, x + 3, y + 2, w - 6 - icon_w, h - 4, 10, true,
         button.enabled == false and Blitbuffer.COLOR_DARK_GRAY or Blitbuffer.COLOR_BLACK)
+    if button.hold_callback then
+        self:drawText(bb, "ⓘ", x + w - icon_w - 3, y + 2, icon_w, h - 4, 10, true,
+            button.enabled == false and Blitbuffer.COLOR_DARK_GRAY or Blitbuffer.COLOR_BLACK)
+    end
     if button.enabled ~= false then self:addTapHolding(x, y, w, h, button.callback, button.hold_callback) end
 end
 
@@ -865,8 +872,24 @@ function BeholdCamelot:closeOverlay(refresh)
     if refresh then self:refreshBoard(true) end
 end
 
+-- KOReader's stock ButtonDialog owns its own drawing.  Mark long-pressable
+-- choices in their label, while the custom game board draws the same symbol at
+-- the right edge of its buttons.
+function BeholdCamelot:markHoldButtons(rows)
+    for _, row in ipairs(rows or {}) do
+        if type(row) == "table" then
+            if row.hold_callback and row.text and not tostring(row.text):find(HOLD_INFO, 1, true) then
+                row.text = tostring(row.text) .. HOLD_INFO
+            else
+                self:markHoldButtons(row)
+            end
+        end
+    end
+end
+
 function BeholdCamelot:showOverlay(widget)
     self:closeOverlay(false)
+    self:markHoldButtons(widget.buttons)
     self.overlay = widget
     UIManager:show(widget)
 end
@@ -1850,6 +1873,7 @@ function BeholdCamelot:chooseRival()
         }}
     end
     rows[#rows + 1] = {{ text=_("Back"), callback=function() self:showMainMenu() end }}
+    self:markHoldButtons(rows)
     self.dialog = ButtonDialog:new{ title=_("Choose a rival"), buttons=rows }
     UIManager:show(self.dialog)
 end
@@ -1886,6 +1910,7 @@ function BeholdCamelot:showNewGameOptions()
     buttons[3][2].hold_callback=function() explain("fluid_round","Fluid Round") end
     table.insert(buttons,1,{{text="Opponent: "..setup.rival.." (hold for strategy)",
         callback=function() self:chooseRival() end,hold_callback=function() self:showStrategy(setup.rival) end}})
+    self:markHoldButtons(buttons)
     self:closeDialog()
     self.dialog=ButtonDialog:new{title="New game vs "..setup.rival,buttons=buttons}
     UIManager:show(self.dialog)
