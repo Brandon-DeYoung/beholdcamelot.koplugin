@@ -1006,32 +1006,38 @@ end
 -- visible together, while the Rival page keeps the live arithmetic together.
 local RealmRivalScreen = BeholdCamelotGameScreen:extend{modal=true,name="beholdcamelot_realm_rival"}
 
--- Font-independent, compact 5-row title lettering for Kindle-friendly ASCII
--- banners. It supports every letter used by a Realm or rival name.
-local ASCII_TITLE_GLYPHS = {
- A={" ## ","#  #","####","#  #","#  #"}, B={"### ","#  #","### ","#  #","### "}, C={" ###","#   ","#   ","#   "," ###"},
- D={"### ","#  #","#  #","#  #","### "}, E={"####","#   ","### ","#   ","####"}, F={"####","#   ","### ","#   ","#   "},
- G={" ###","#   ","# ##","#  #"," ###"}, H={"#  #","#  #","####","#  #","#  #"}, I={"###"," # "," # "," # ","###"},
- J={"  ##","   #","   #","#  #"," ## "}, K={"#  #","# # ","##  ","# # ","#  #"}, L={"#   ","#   ","#   ","#   ","####"},
- M={"#   #","## ##","# # #","#   #","#   #"}, N={"#  #","## #","# ##","#  #","#  #"}, O={" ## ","#  #","#  #","#  #"," ## "},
- P={"### ","#  #","### ","#   ","#   "}, Q={" ## ","#  #","#  #","# ##"," ###"}, R={"### ","#  #","### ","# # ","#  #"},
- S={" ###","#   "," ## ","   #","### "}, T={"#####","  #  ","  #  ","  #  ","  #  "}, U={"#  #","#  #","#  #","#  #"," ## "},
- V={"#   #","#   #"," # # "," # # ","  #  "}, W={"#   #","#   #","# # #","## ##","#   #"}, X={"#   #"," # # ","  #  "," # # ","#   #"},
- Y={"#   #"," # # ","  #  ","  #  ","  #  "}, Z={"####","   #"," ## ","#   ","####"}, [" "]={"  ","  ","  ","  ","  "},
-}
+-- NV Script banners supplied by the user from patorjk.com's TAAG.
+local ASCII_TITLES = dofile((debug.getinfo(1, "S").source:match("^@(.*/)") or "") .. "titles.lua")
 
 function RealmRivalScreen:drawAsciiTitle(bb, text, x, y, w, scale)
-    local lines={"","","","",""}
-    for character in text:upper():gmatch(".") do
-        local glyph=ASCII_TITLE_GLYPHS[character] or ASCII_TITLE_GLYPHS[" "]
-        -- The doubled 8s give the title an engraved, old-print ASCII look
-        -- instead of looking like a small pixel font.
-        for row=1,5 do lines[row]=lines[row]..glyph[row]:gsub("#","88").." " end
+    local lines = {}
+    for line in ((ASCII_TITLES[text] or text) .. "\n"):gmatch("(.-)\n") do
+        lines[#lines + 1] = line:gsub("%s+$", "")
     end
-    local size=math.max(7,math.floor(9*scale))
-    local line_h=math.max(10,math.floor(11*scale))
-    for row,line in ipairs(lines) do self:drawText(bb,line,x,y+(row-1)*line_h,w,line_h,size,true,Blitbuffer.COLOR_BLACK) end
-    return line_h*5
+    while lines[#lines] == "" do table.remove(lines) end
+    local face, line_h, ascender, widest
+    -- Font:getFace already applies DPI scaling. Measure every row, including
+    -- descenders, and keep the whole title inside its allocated header.
+    local max_h = math.floor(self.screen_h * 0.22)
+    for size = 18, 1, -1 do
+        face = Font:getFace("smallinfont", size)
+        local face_h
+        face_h, ascender = face.ftsize:getHeightAndAscender()
+        line_h = math.ceil(face_h)
+        widest = 0
+        for _, line in ipairs(lines) do
+            widest = math.max(widest, RenderText:sizeUtf8Text(0, 100000, face, line, false, false).x)
+        end
+        if widest <= w - 4 and line_h * #lines <= max_h then break end
+    end
+    -- Center the complete canvas, never individual rows: short rows must keep
+    -- their original left edge or the supplied artwork is destroyed.
+    local tx = math.floor(x + math.max(0, (w - widest) / 2))
+    for row, line in ipairs(lines) do
+        RenderText:renderUtf8Text(bb, tx, y + (row - 1) * line_h + math.floor(ascender + .5),
+            face, line, false, false, Blitbuffer.COLOR_BLACK, w)
+    end
+    return line_h * #lines + math.max(4, math.floor(4 * scale))
 end
 
 function RealmRivalScreen:onClose()
@@ -1056,7 +1062,7 @@ end
 
 function RealmRivalScreen:drawRealmPage(bb, scale, margin, gap, controls_y, control_h)
     local w = self.screen_w
-    local art_h = self:drawAsciiTitle(bb,"THE REALM",margin,margin,w-margin*2,scale) + gap
+    local art_h = self:drawAsciiTitle(bb,"The Realm",margin,margin,w-margin*2,scale) + gap
     local art = { "      /\\", "     /  \\", "    /____\\", "    | [] |", "   _|____|_" }
     -- The title itself is the decorative element; the old house glyph is no
     -- longer painted so its space can belong to the four realm descriptions.
@@ -1071,9 +1077,9 @@ function RealmRivalScreen:drawRealmPage(bb, scale, margin, gap, controls_y, cont
         bb:paintRect(x, y, cell_w, cell_h, current and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE)
         bb:paintBorder(x, y, cell_w, cell_h, current and 3 or 1, Blitbuffer.COLOR_BLACK)
         self:drawText(bb, (current and "* " or "") .. REALM_NAMES[level], x + 4, y + 3, cell_w - 8,
-            math.max(16, math.floor(19 * scale)), 11, true)
+            math.max(18, math.floor(20 * scale)), 14, true)
         self:drawFittedText(bb, self:realmCellText(level), x + 5, y + math.max(20, math.floor(23 * scale)),
-            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 10, false, Blitbuffer.COLOR_BLACK)
+            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 15, false, Blitbuffer.COLOR_BLACK)
     end
     self:drawButton(bb, {text="RIVAL ›", callback=function() self.page=2; UIManager:setDirty(self,"ui") end},
         margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
@@ -1114,7 +1120,7 @@ function RealmRivalScreen:drawRivalPage(bb, scale, margin, gap, controls_y, cont
         lines[#lines + 1] = "MARGIN: " .. string.format("%+d", score.total - score.rival) .. " (ties lose)"
     end
     self:drawFittedText(bb, table.concat(lines, "\n"), margin + 4, margin + art_h, w - margin * 2 - 8,
-        controls_y - gap - (margin + art_h), 13, false, Blitbuffer.COLOR_BLACK)
+        controls_y - gap - (margin + art_h), 18, false, Blitbuffer.COLOR_BLACK)
     self:drawButton(bb, {text="‹ REALM", callback=function() self.page=1; UIManager:setDirty(self,"ui") end},
         margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
     self:drawButton(bb, {text="BACK", callback=function() self:onClose() end},
