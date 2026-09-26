@@ -527,7 +527,7 @@ function BeholdCamelotGameScreen:drawFace(bb, id, level, x, y, w, h, compact, ac
     local face = FACE_DATA[id] and FACE_DATA[id][level] or {}
     local card_type = CARD_TYPES[id] and CARD_TYPES[id][level] or "Unknown"
     local border = active and 3 or 1
-    local band_h = math.max(28, math.floor(h * 0.23))
+    local band_h = math.max(24, math.floor(h * 0.20))
     local shade = TYPE_SHADE[card_type] or Blitbuffer.COLOR_LIGHT_GRAY
     local band_text = shade == Blitbuffer.COLOR_BLACK and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_BLACK
     bb:paintRect(x, y, w, h, Blitbuffer.COLOR_WHITE)
@@ -536,18 +536,24 @@ function BeholdCamelotGameScreen:drawFace(bb, id, level, x, y, w, h, compact, ac
     local icons={}
     for _,key in ipairs(Scoring.order) do
         local n=Scoring.faces[id][level].keys[key]
-        if n then icons[#icons+1]=Scoring.symbols[key]..n end
+        for i=1,n or 0 do icons[#icons+1]=Scoring.symbols[key] end
     end
     local resources=(face.store or ""):gsub("materials?","[M]"):gsub("population","[P]")
     if resources=="No available resource" then resources="" end
     local wealth=HOLDING_WEALTH[id] and HOLDING_WEALTH[id][level]
-    if wealth then resources="/\\ "..wealth end
-    local banner=string.format("L%d %s  %s\n%s",level,card_type:upper(),resources,table.concat(icons," "))
-    self:drawFittedText(bb,banner,x+5,y+border,w-10,band_h,compact and 8 or 11,true,band_text)
+    if wealth then resources=resources.." /\\ "..wealth end
+    local row_h=math.floor(band_h/2)
+    local left_w=math.floor(w*.16)
+    local right_w=math.floor(w*.30)
+    self:drawFittedText(bb,"L"..level,x+5,y+border,left_w-5,row_h,compact and 9 or 12,true,band_text)
+    self:drawText(bb,card_type:upper(),x+left_w,y+border,w-left_w-right_w,row_h,compact and 8 or 11,true,band_text)
+    self:drawText(bb,resources,x+w-right_w,y+border,right_w-5,row_h,compact and 8 or 11,true,band_text)
+    self:drawFittedText(bb,table.concat(icons," "),x+5,y+border+row_h,w-10,band_h-row_h,
+        compact and 9 or 12,true,band_text)
     local name_y = y + band_h + border
-    local name_h = math.max(20, math.floor(h * 0.17))
+    local name_h = math.max(22, math.floor(h * 0.20))
     self:drawFittedText(bb, card.names[level], x + 5, name_y, w - 10, name_h,
-        compact and 10 or 14, true, Blitbuffer.COLOR_BLACK)
+        compact and 14 or 19, true, Blitbuffer.COLOR_BLACK)
     local info_y = name_y + name_h
     local stats=Scoring.faces[id][level]
     local body={"PLAY: "..shortPlay(face.play),face.effect or "No printed action.",
@@ -600,13 +606,7 @@ function BeholdCamelotGameScreen:drawDeckTop(bb, x, y, w, h, compact)
         self:drawText(bb, "REALM", x, y, w, math.floor(h / 2), 10, true)
         self:drawText(bb, "ROUND END", x, y + math.floor(h / 2), w, math.ceil(h / 2), 8, false)
     else
-        self:drawDoubleCard(bb, top.id, x, y, w, h, compact, self.plugin.game.levels[top.id])
-        if top.stored then
-            local label = string.format("STORED %s%d", top.stored.kind == "materials" and "M" or "P", top.stored.amount)
-            bb:paintRect(x + 2, y + math.floor(h * 0.42), w - 4, math.max(18, math.floor(h * 0.16)), Blitbuffer.COLOR_BLACK)
-            self:drawText(bb, label, x + 2, y + math.floor(h * 0.42), w - 4,
-                math.max(18, math.floor(h * 0.16)), 7, true, Blitbuffer.COLOR_WHITE)
-        end
+        self:drawFace(bb, top.id, self.plugin.game.levels[top.id], x, y, w, h, true, true)
     end
 end
 
@@ -657,9 +657,13 @@ function BeholdCamelotGameScreen:drawHeader(bb, scale, margin, close_size, deck_
     self:drawText(bb, string.format("SCORE %d%s  (tap for breakdown)", score.total,
         score.rival and (" / Rival " .. score.rival) or ""), margin, sy, text_w, line_h, 9, true, nil, true)
     self:addTapHolding(margin, sy, text_w, line_h, function() plugin:showScoring() end)
-    self:drawText(bb, "PILE TOP", deck_x, margin, deck_w, math.max(15, math.floor(18 * scale)), 8, true)
-    local deck_y = margin + math.max(15, math.floor(18 * scale))
     local top = game.deck[1]
+    local pile_label = "PILE TOP"
+    if top and top.stored then
+        pile_label = pile_label .. string.format(" — STORED %s%d", top.stored.kind == "materials" and "M" or "P", top.stored.amount)
+    end
+    self:drawText(bb, pile_label, deck_x, margin, deck_w, math.max(15, math.floor(18 * scale)), 8, true)
+    local deck_y = margin + math.max(15, math.floor(18 * scale))
     self:drawDeckTop(bb, deck_x, deck_y, deck_w, header_h - deck_y - margin, true)
     self:addTapHolding(deck_x, deck_y, deck_w, header_h - deck_y - margin, function()
         if top and top.marker == "realm" then
@@ -678,9 +682,11 @@ function BeholdCamelotGameScreen:paintOverview(bb, scale, margin, gap, header_h)
     local controls_total = control_rows * control_h + (control_rows - 1) * gap
     local cards_y = header_h + gap
     local cards_h = h - cards_y - controls_total - margin - gap
-    local card_cols, card_rows = 3, 2
+    local count = #self.plugin.game.hand
+    local card_cols = count > 9 and 4 or 3
+    local card_rows = math.max(2, math.ceil(count / card_cols))
     local card_w = math.floor((w - margin * 2 - gap * (card_cols - 1)) / card_cols)
-    local card_h = math.floor((cards_h - gap) / card_rows)
+    local card_h = math.floor((cards_h - gap * (card_rows - 1)) / card_rows)
     for index, id in ipairs(self.plugin.game.hand) do
         local col, row = (index - 1) % card_cols, math.floor((index - 1) / card_cols)
         local cx, cy = margin + col * (card_w + gap), cards_y + row * (card_h + gap)
@@ -793,8 +799,8 @@ function BeholdCamelotGameScreen:paintTo(bb, x, y)
     local margin = math.max(6, math.floor(8 * scale))
     local gap = math.max(3, math.floor(5 * scale))
     local close_size = math.max(32, math.floor(38 * scale))
-    local deck_w = math.max(105, math.floor(w * 0.23))
-    local header_h = math.max(105, math.floor(122 * scale))
+    local deck_w = math.max(105, math.floor(w * 0.29))
+    local header_h = math.max(105, math.floor(140 * scale))
     self.tap_holdings = {}
     bb:paintRect(x, y, w, h, Blitbuffer.COLOR_WHITE)
     self:drawHeader(bb, scale, margin, close_size, deck_w, header_h)
@@ -1001,7 +1007,7 @@ function BeholdCamelot:previewCard(id)
     UIManager:show(CardPreview:new{plugin=self,card_id=id,preview_level=self.game.levels[id]})
 end
 
--- Realm and rival information is deliberately a drawn two-page view rather
+-- Realm, rival, and icon information is deliberately a drawn three-page view rather
 -- than a scrolling text dialog: the Realm page keeps all four upgrade paths
 -- visible together, while the Rival page keeps the live arithmetic together.
 local RealmRivalScreen = BeholdCamelotGameScreen:extend{modal=true,name="beholdcamelot_realm_rival"}
@@ -1057,7 +1063,8 @@ function RealmRivalScreen:realmCellText(level)
         "UPGRADE TO ARTHUR'S EMPIRE: abandon controlled Holdings totaling exactly 3 wealth.",
         "UPGRADE TO THE GRAIL QUEST: abandon controlled Holdings totaling exactly 4 wealth; Galahad must be active.",
     }
-    return REALM_DATA[level].effect .. "\n\n" .. upgrades[level]
+    local description = REALM_DATA[level].effect:gsub(" At round end,.*$", "")
+    return description .. "\n\nAT ROUND END — " .. upgrades[level]
 end
 
 function RealmRivalScreen:drawRealmPage(bb, scale, margin, gap, controls_y, control_h)
@@ -1079,7 +1086,7 @@ function RealmRivalScreen:drawRealmPage(bb, scale, margin, gap, controls_y, cont
         self:drawText(bb, (current and "* " or "") .. REALM_NAMES[level], x + 4, y + 3, cell_w - 8,
             math.max(18, math.floor(20 * scale)), 14, true)
         self:drawFittedText(bb, self:realmCellText(level), x + 5, y + math.max(20, math.floor(23 * scale)),
-            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 15, false, Blitbuffer.COLOR_BLACK)
+            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 18, false, Blitbuffer.COLOR_BLACK)
     end
     self:drawButton(bb, {text="RIVAL ›", callback=function() self.page=2; UIManager:setDirty(self,"ui") end},
         margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
@@ -1121,7 +1128,45 @@ function RealmRivalScreen:drawRivalPage(bb, scale, margin, gap, controls_y, cont
     end
     self:drawFittedText(bb, table.concat(lines, "\n"), margin + 4, margin + art_h, w - margin * 2 - 8,
         controls_y - gap - (margin + art_h), 18, false, Blitbuffer.COLOR_BLACK)
+    local button_w = math.floor((w - margin * 2 - gap * 2) / 3)
     self:drawButton(bb, {text="‹ REALM", callback=function() self.page=1; UIManager:setDirty(self,"ui") end},
+        margin, controls_y, button_w, control_h, scale)
+    self:drawButton(bb, {text="ICONS ›", callback=function() self.page=3; UIManager:setDirty(self,"ui") end},
+        margin + button_w + gap, controls_y, button_w, control_h, scale)
+    self:drawButton(bb, {text="BACK", callback=function() self:onClose() end},
+        margin + (button_w + gap) * 2, controls_y, button_w, control_h, scale)
+end
+
+function RealmRivalScreen:drawIconsPage(bb, scale, margin, gap, controls_y, control_h)
+    local w = self.screen_w
+    local title_h = math.floor(38 * scale)
+    self:drawText(bb, "KEYING ICONS", margin, margin, w-margin*2, title_h, 22, true)
+    local intro_h = math.floor(76 * scale)
+    self:drawFittedText(bb,
+        "Count icons on active card faces throughout your civilization, including the pile. Each printed symbol counts once. Icons matter when a card or scoring rule refers to them.",
+        margin+5, margin+title_h, w-margin*2-10, intro_h, 14, false)
+    local entries = {
+        {"military", "Military", "The sword-and-shield keying icon."},
+        {"wheel", "Wheel", "Count each wheel for rules that refer to wheels."},
+        {"lyre", "Lyre", "Count each lyre for rules that refer to lyres."},
+        {"bag", "Bag", "A keying icon, not stored materials or population."},
+        {"sprout", "Sprout", "A keying icon, separate from prosperity."},
+        {"luxury", "Luxury", "Count each luxury icon for luxury-based scoring."},
+        {"ship", "Ship", "Count each ship for rules that refer to ships."},
+    }
+    local start_y = margin + title_h + intro_h + gap
+    local row_h = math.floor((controls_y-gap-start_y) / #entries)
+    local symbol_w = math.floor(w * .20)
+    for index, entry in ipairs(entries) do
+        local y = start_y + (index-1)*row_h
+        bb:paintBorder(margin, y, w-margin*2, row_h, 1, Blitbuffer.COLOR_DARK_GRAY)
+        self:drawText(bb, Scoring.symbols[entry[1]], margin+4, y, symbol_w-8, row_h, 22, true)
+        local text_x = margin+symbol_w
+        local name_h = math.floor(row_h*.40)
+        self:drawText(bb, entry[2], text_x, y+2, w-margin-text_x-5, name_h, 18, true, nil, true)
+        self:drawFittedText(bb, entry[3], text_x, y+name_h, w-margin-text_x-5, row_h-name_h-4, 14, false)
+    end
+    self:drawButton(bb, {text="‹ RIVAL", callback=function() self.page=2; UIManager:setDirty(self,"ui") end},
         margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
     self:drawButton(bb, {text="BACK", callback=function() self:onClose() end},
         math.floor((w + margin) / 2), controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
@@ -1136,7 +1181,8 @@ function RealmRivalScreen:paintTo(bb, x, y)
     local controls_y = h - margin - control_h
     self.tap_holdings = {}
     bb:paintRect(x, y, w, h, Blitbuffer.COLOR_WHITE)
-    if self.page == 2 then self:drawRivalPage(bb, scale, margin, gap, controls_y, control_h)
+    if self.page == 3 then self:drawIconsPage(bb, scale, margin, gap, controls_y, control_h)
+    elseif self.page == 2 then self:drawRivalPage(bb, scale, margin, gap, controls_y, control_h)
     else self:drawRealmPage(bb, scale, margin, gap, controls_y, control_h) end
 end
 
@@ -2219,10 +2265,11 @@ function BeholdCamelot:gameActionButtons()
     else
         buttons[#buttons + 1] = { text=_("Discard top / end turn"), callback=function() self:endTurnTop() end }
     end
-    buttons[#buttons + 1] = { text=_("Stored"), callback=function() self:showStored() end }
-    buttons[#buttons + 1] = { text=_("Holdings"), callback=function() self:showControlled() end }
+    local stored_materials, stored_population, stored_count = self:storedSummary()
+    buttons[#buttons + 1] = { text=string.format("Stored (%d)",stored_count), callback=function() self:showStored() end }
+    buttons[#buttons + 1] = { text=string.format("Holdings (%d)",#self.game.controlled), callback=function() self:showControlled() end }
     buttons[#buttons + 1] = { text=_("Strategy"), callback=function() self:showStrategy() end }
-    buttons[#buttons + 1] = { text=_("Realm / Rival"), callback=function() self:showRealm() end }
+    buttons[#buttons + 1] = { text=_("Realm / Rival / Icons"), callback=function() self:showRealm() end }
     if self.game.foresight then buttons[#buttons + 1] = { text=_("Inspect pile"), callback=function() self:showDeckOrder() end } end
     buttons[#buttons + 1] = { text=_("Correct game state"), callback=function() self:showCorrectionMenu() end }
     buttons[#buttons + 1] = { text=_("Undo"), callback=function() self:undo() end }

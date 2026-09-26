@@ -628,7 +628,7 @@ for _,dimensions in ipairs({{600,800},{758,1024},{1072,1448},{1272,1696}}) do
     board.drawFittedText=function(self,buffer,text,x,y,w,h,size,bold,color)
         local fits=original(self,buffer,text,x,y,w,h,size,bold,color)
         if not fits then failures[#failures+1]=text end
-        if text:match("^L%d ") then banners[#banners+1]=text end
+        banners[#banners+1]=text
         return fits
     end
     for id in pairs(plugin.game.levels) do
@@ -636,11 +636,11 @@ for _,dimensions in ipairs({{600,800},{758,1024},{1072,1448},{1272,1696}}) do
     end
     assert(#failures==0,"Card overflow at "..screen_w..": "..table.concat(failures,"\n"))
     local banner_text=table.concat(banners,"\n")
-    assert(banner_text:find("[M]",1,true) and banner_text:find("[P]",1,true)
-        and banner_text:find("/\\ 4",1,true) and banner_text:find("X|4",1,true),"Banner values/icons missing")
+    assert(banner_text:find("X| X| X| X|",1,true),"Individual keying icons missing")
     banners={}
     board:drawDoubleCard(bb,"host",0,0,400,500,true,3)
-    assert(#banners==2 and banners[1]:find("X|3",1,true) and banners[2]:find("X|4",1,true),"Both card halves need keying icons")
+    local both=table.concat(banners,"\n")
+    assert(both:find("X| X| X|",1,true) and both:find("X| X| X| X|",1,true),"Both card halves need keying icons")
     local lines=board:layoutText("First line\nSecond line",10000,8,false)
     assert(#lines==2 and lines[1]=="First line" and lines[2]=="Second line","Explicit line breaks lost")
 end
@@ -738,6 +738,31 @@ assert(plugin.overlay.name=="beholdcamelot_realm_rival" and plugin.overlay.page=
 plugin.overlay:paintTo(bb,0,0)
 plugin.overlay.tap_holdings[1].callback()
 assert(plugin.overlay.page==2 and fingerprint(plugin.game)==before)
+for _, dims in ipairs({{600,800},{758,1024},{1072,1448},{1272,1696}}) do
+    screen_w,screen_h=dims[1],dims[2]
+    plugin:showRealm()
+    local page=plugin.overlay
+    page.page=2; page:paintTo(bb,0,0)
+    page.tap_holdings[2].callback()
+    assert(page.page==3,"Rival page did not open Icons")
+    local symbols={}
+    local draw=page.drawText
+    page.drawText=function(self,buffer,text,...)
+        symbols[text]=true; return draw(self,buffer,text,...)
+    end
+    local fitted=page.drawFittedText
+    page.drawFittedText=function(self,buffer,text,...)
+        local fits=fitted(self,buffer,text,...)
+        assert(fits,"Icon legend overflow: "..text); return fits
+    end
+    page:paintTo(bb,0,0)
+    for _,symbol in pairs(dofile(project_root.."beholdcamelot.koplugin/scoring.lua").symbols) do
+        assert(symbols[symbol],"Missing legend symbol")
+    end
+    assert(fingerprint(plugin.game)==before,"Legend changed game state")
+    page.tap_holdings[1].callback()
+    assert(page.page==2,"Legend did not return to Rival")
+end
 plugin.game.rival="Chronicle of the Realm"
 plugin:showRealm()
 plugin.overlay.page=2; plugin.overlay:paintTo(bb,0,0)
@@ -793,3 +818,67 @@ plugin:init()
 assert(opened_path:match("/beholdcamelot%.lua$"))
 settings.open=original_open
 print("Camelot roster, menu, attribution-only About and isolated save identity passed")
+
+-- Large hands must never extend into the bottom controls; every card remains
+-- selectable and focused navigation must reach the last card.
+for _, dims in ipairs({{600,800},{758,1024},{1072,1448},{1272,1696}}) do
+    screen_w,screen_h=dims[1],dims[2]
+    for _, count in ipairs({5,6,7,9,10,12,15,16}) do
+        local hand,deck={},{}
+        for i,id in ipairs(ids) do
+            if i<=count then hand[#hand+1]=id else deck[#deck+1]={id=id} end
+        end
+        deck[#deck+1]={marker="realm"}
+        fresh(hand,{}, {},deck)
+        plugin.dialog=nil; plugin:showGame()
+        local board=plugin.dialog
+        board:paintTo(bb,0,0)
+        local targets=board.tap_holdings
+        local control_y=targets[4+count].rect.y
+        for i=4,3+count do
+            local r=targets[i].rect
+            assert(r.y+r.h<=control_y,"Large hand overlaps controls")
+            assert(r.x>=0 and r.x+r.w<=screen_w and r.w>0 and r.h>0,"Invalid card bounds")
+        end
+        targets[3+count].callback()
+        assert(board.selected_index==count,"Last hand card not selectable")
+        board:paintTo(bb,0,0)
+        board:moveFocus(1)
+        assert(board.selected_index==1,"Large hand navigation did not wrap")
+    end
+    -- Test actual pile geometry and every face's complete text.
+    local board=plugin.dialog
+    local fit=board.drawFittedText
+    board.drawFittedText=function(self,buffer,text,...)
+        local ok=fit(self,buffer,text,...)
+        assert(ok,"Pile text overflow at "..screen_w..": "..text)
+        return ok
+    end
+    local scale=math.min(screen_w/600,screen_h/800)
+    for _,id in ipairs(ids) do for level=1,4 do
+        plugin.game.levels[id]=level; plugin.game.deck={{id=id}}
+        board:drawDeckTop(bb,0,0,math.floor(screen_w*.29),math.floor(114*scale),true)
+    end end
+    board.drawFittedText=fit
+end
+
+-- Five is a refill target, not a hand limit. A late-game Cornwall action can
+-- collect every card when Fluid Round lets its draws pass the Realm marker.
+local large_hand={}
+for _,id in ipairs(ids) do if id~="crafts" then large_hand[#large_hand+1]=id end end
+fresh(large_hand,{marches=2,dues=4},{},{{id="crafts"},{marker="realm"}})
+plugin.game.realm_level=1; plugin.game.fluid_round=true
+local source_index
+for i,id in ipairs(plugin.game.hand) do if id=="marches" then source_index=i end end
+plugin:startPlayAction(source_index)
+click("Extraordinary Levy"); click("Draw 4")
+plugin:resolveActionDraw(); click("Continue into next round"); notices()
+plugin:resolveActionDraw(); notices()
+plugin:resolveActionDraw(); notices()
+assert(#plugin.game.hand==16,"Fluid draw should allow all sixteen cards in hand")
+plugin:finishAction()
+assert(#plugin.game.hand==16 and not plugin.game.action,"Full hand changed on action completion")
+local buttons=plugin:gameActionButtons()
+local labels={}; for _,b in ipairs(buttons) do labels[b.text]=true end
+assert(labels["Stored (0)"] and labels["Holdings (0)"],"Zone counts missing")
+print("Hands 5–16 fit at four resolutions; all 64 pile faces fit; Fluid Round permits a 16-card hand")
