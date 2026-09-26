@@ -1024,10 +1024,12 @@ function RealmRivalScreen:drawAsciiTitle(bb, text, x, y, w, scale)
     local lines={"","","","",""}
     for character in text:upper():gmatch(".") do
         local glyph=ASCII_TITLE_GLYPHS[character] or ASCII_TITLE_GLYPHS[" "]
-        for row=1,5 do lines[row]=lines[row]..glyph[row].." " end
+        -- The doubled 8s give the title an engraved, old-print ASCII look
+        -- instead of looking like a small pixel font.
+        for row=1,5 do lines[row]=lines[row]..glyph[row]:gsub("#","88").." " end
     end
-    local size=math.max(7,math.floor(8*scale))
-    local line_h=math.max(9,math.floor(10*scale))
+    local size=math.max(7,math.floor(9*scale))
+    local line_h=math.max(10,math.floor(11*scale))
     for row,line in ipairs(lines) do self:drawText(bb,line,x,y+(row-1)*line_h,w,line_h,size,true,Blitbuffer.COLOR_BLACK) end
     return line_h*5
 end
