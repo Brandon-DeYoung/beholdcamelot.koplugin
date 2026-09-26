@@ -375,6 +375,7 @@ function BeholdCamelotGameScreen:init()
     self.face_cache_order = {}
     self.face_cache_limit = 40
     self.ges_events.Tap = { GestureRange:new{ ges="tap", range=self.dimen } }
+    self.ges_events.Hold = { GestureRange:new{ ges="hold", range=self.dimen } }
 end
 
 function BeholdCamelotGameScreen:getSize()
@@ -399,10 +400,21 @@ function BeholdCamelotGameScreen:onCloseWidget()
     UIManager:setDirty(nil, "full")
 end
 
-function BeholdCamelotGameScreen:addTapHolding(x, y, w, h, callback)
+function BeholdCamelotGameScreen:addTapHolding(x, y, w, h, callback, hold_callback)
     self.tap_holdings[#self.tap_holdings + 1] = {
-        rect=Geom:new{ x=x, y=y, w=w, h=h }, callback=callback,
+        rect=Geom:new{ x=x, y=y, w=w, h=h }, callback=callback, hold_callback=hold_callback,
     }
+end
+
+function BeholdCamelotGameScreen:onHold(_, ges)
+    for index = #self.tap_holdings, 1, -1 do
+        local holding = self.tap_holdings[index]
+        if holding.hold_callback and holding.rect:contains(ges.pos) then
+            holding.hold_callback()
+            return true
+        end
+    end
+    return true
 end
 
 function BeholdCamelotGameScreen:onTap(_, ges)
@@ -442,7 +454,7 @@ function BeholdCamelotGameScreen:drawButton(bb, button, x, y, w, h, scale)
     bb:paintBorder(x, y, w, h, border, Blitbuffer.COLOR_BLACK)
     self:drawText(bb, button.text, x + 3, y + 2, w - 6, h - 4, 10, true,
         button.enabled == false and Blitbuffer.COLOR_DARK_GRAY or Blitbuffer.COLOR_BLACK)
-    if button.enabled ~= false then self:addTapHolding(x, y, w, h, button.callback) end
+    if button.enabled ~= false then self:addTapHolding(x, y, w, h, button.callback, button.hold_callback) end
 end
 
 local TYPE_SHADE = {
@@ -640,8 +652,15 @@ function BeholdCamelotGameScreen:drawHeader(bb, scale, margin, close_size, deck_
     self:addTapHolding(margin, sy, text_w, line_h, function() plugin:showScoring() end)
     self:drawText(bb, "PILE TOP", deck_x, margin, deck_w, math.max(15, math.floor(18 * scale)), 8, true)
     local deck_y = margin + math.max(15, math.floor(18 * scale))
+    local top = game.deck[1]
     self:drawDeckTop(bb, deck_x, deck_y, deck_w, header_h - deck_y - margin, true)
-    self:addTapHolding(deck_x, deck_y, deck_w, header_h - deck_y - margin, function() self:focus(0) end)
+    self:addTapHolding(deck_x, deck_y, deck_w, header_h - deck_y - margin, function()
+        if top and top.marker == "realm" then
+            plugin:showRealm()
+        else
+            self:focus(0)
+        end
+    end)
 end
 
 function BeholdCamelotGameScreen:paintOverview(bb, scale, margin, gap, header_h)
@@ -686,7 +705,13 @@ end
 function BeholdCamelotGameScreen:paintFocus(bb, scale, margin, gap, header_h)
     local w, h = self.screen_w, self.screen_h
     local id, index = self:focusedCard()
-    if not id then self:overview(); return end
+    -- A Realm marker has no physical card face.  Avoid changing the view while
+    -- painting: doing so previously left the lower board blank until another tap.
+    if not id then
+        self.view_mode = "overview"
+        self:paintOverview(bb, scale, margin, gap, header_h)
+        return
+    end
     local tab_h = math.max(26, math.floor(31 * scale))
     local tabs_y = header_h + gap
     local tab_w = math.floor((w - margin * 2 - gap * math.max(0, #self.plugin.game.hand - 1))
@@ -2016,7 +2041,11 @@ function BeholdCamelot:gameActionButtons()
         }
     end
     if self.game.round_end then
-        buttons[#buttons + 1] = { text=_("Develop realm"), callback=function() self:developRealm() end }
+        buttons[#buttons + 1] = {
+            text=_("Develop realm"),
+            callback=function() self:developRealm() end,
+            hold_callback=function() self:showRealmUpgrade() end,
+        }
         buttons[#buttons + 1] = { text=_("End round"), callback=function() self:chooseRoundDiscard() end }
     elseif self.game.awaiting_draw then
         buttons[#buttons + 1] = {
@@ -2101,11 +2130,44 @@ function BeholdCamelot:showHandCard(index)
     })
 end
 
+function BeholdCamelot:realmUpgradeText()
+    local level = self.game.realm_level
+    if level >= 4 then return "NEXT REALM UPGRADE: none (The Grail Quest is the final realm)." end
+    local target = REALM_NAMES[level + 1]
+    local cost = {
+        "abandon 1 controlled Holding of any wealth and pay 1 material",
+        "abandon controlled Holdings totaling exactly 3 wealth",
+        "abandon controlled Holdings totaling exactly 4 wealth",
+    }
+    local lines = { "NEXT REALM UPGRADE: " .. target, "COST: " .. cost[level] .. "." }
+    if level == 3 then
+        lines[#lines + 1] = self.game.levels.council == 1 and self:isCardActive("council")
+            and "REQUIREMENT: Galahad is active."
+            or "REQUIREMENT: Galahad must be active (currently not met)."
+    end
+    if self.game.realm_developed then
+        lines[#lines + 1] = "This realm has already developed this round."
+    elseif self.game.round_end then
+        lines[#lines + 1] = "Available now: resolve this cost with Develop realm."
+    else
+        lines[#lines + 1] = "Available at round end."
+    end
+    return table.concat(lines, "\n")
+end
+
+function BeholdCamelot:showRealmUpgrade()
+    self:showOverlay(TextViewer:new{
+        modal=true,
+        title="Develop realm cost",
+        text=self:realmUpgradeText(),
+    })
+end
+
 function BeholdCamelot:showRealm()
     local level = self.game.realm_level
     local s=self:liveScore()
     local lines={"REALM: "..REALM_NAMES[level],REALM_DATA[level].effect,
-        "Current realm scoring: "..s.realm.." Renown", "",self:rivalScoreText(s)}
+        "Current realm scoring: "..s.realm.." Renown", "",self:realmUpgradeText(), "",self:rivalScoreText(s)}
     self:showOverlay(TextViewer:new{
         modal=true,
         title="Realm / Rival",

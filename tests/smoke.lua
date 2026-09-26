@@ -125,6 +125,41 @@ for _, dimensions in ipairs({ {600,800}, {758,1024}, {1072,1448}, {1272,1696} })
     print(string.format("Behold: Camelot UI %dx%d: fixed layout and overlay lifecycle passed", screen_w, screen_h))
 end
 
+-- The Realm marker opens its round-end information instead of attempting to
+-- render as a card, and holding Develop realm previews the exact next cost.
+plugin.game.round_end = true
+plugin.game.realm_level = 1
+plugin.game.realm_developed = false
+plugin.game.deck = {{marker="realm"}, {id="trade"}}
+plugin.game.hand = {"crafts", "host", "works", "customs", "camelot"}
+plugin.game.action = nil
+plugin.dialog, plugin.overlay = nil, nil
+plugin:showGame()
+local round_end_board = plugin.dialog
+round_end_board:paintTo(bb, 0, 0)
+assert(round_end_board.ges_events.Hold, "game screen has no hold gesture")
+local develop_button
+for _, button in ipairs(plugin:gameActionButtons()) do
+    if button.text == "Develop realm" then develop_button = button; break end
+end
+assert(develop_button and develop_button.hold_callback, "Develop realm has no hold preview")
+develop_button.hold_callback()
+assert(plugin.overlay and plugin.overlay.title == "Develop realm cost"
+    and plugin.overlay.text:find("The Fellowship", 1, true)
+    and plugin.overlay.text:find("1 material", 1, true), "realm cost preview is incomplete")
+plugin:closeOverlay(false)
+round_end_board:paintTo(bb, 0, 0)
+round_end_board.tap_holdings[3].callback() -- Pile-top Realm marker.
+assert(plugin.overlay and plugin.overlay.title == "Realm / Rival"
+    and plugin.overlay.text:find("NEXT REALM UPGRADE", 1, true), "Realm marker did not open upgrade information")
+plugin:closeOverlay(false)
+round_end_board:focus(0)
+round_end_board:paintTo(bb, 0, 0)
+assert(round_end_board.view_mode == "overview" and #round_end_board.tap_holdings > 3,
+    "selecting a Realm marker left the lower game board blank")
+plugin.game.round_end = false
+plugin.game.deck = {{id="trade"}, {id="dues", stored={kind="population", amount=1}}, {marker="realm"}}
+
 -- End-of-turn refill is manual and warns before exposing a stored card.
 plugin.game.hand = {"crafts", "host", "works", "customs"}
 plugin.game.deck = {
