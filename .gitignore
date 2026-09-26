@@ -1,0 +1,6 @@
+.DS_Store
+*.zip
+*.log
+*.luac
+beholdcamelot.lua
+beholdcamelot.lua.*
