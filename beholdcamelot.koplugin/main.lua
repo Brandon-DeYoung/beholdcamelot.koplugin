@@ -1006,6 +1006,32 @@ end
 -- visible together, while the Rival page keeps the live arithmetic together.
 local RealmRivalScreen = BeholdCamelotGameScreen:extend{modal=true,name="beholdcamelot_realm_rival"}
 
+-- Font-independent, compact 5-row title lettering for Kindle-friendly ASCII
+-- banners. It supports every letter used by a Realm or rival name.
+local ASCII_TITLE_GLYPHS = {
+ A={" ## ","#  #","####","#  #","#  #"}, B={"### ","#  #","### ","#  #","### "}, C={" ###","#   ","#   ","#   "," ###"},
+ D={"### ","#  #","#  #","#  #","### "}, E={"####","#   ","### ","#   ","####"}, F={"####","#   ","### ","#   ","#   "},
+ G={" ###","#   ","# ##","#  #"," ###"}, H={"#  #","#  #","####","#  #","#  #"}, I={"###"," # "," # "," # ","###"},
+ J={"  ##","   #","   #","#  #"," ## "}, K={"#  #","# # ","##  ","# # ","#  #"}, L={"#   ","#   ","#   ","#   ","####"},
+ M={"#   #","## ##","# # #","#   #","#   #"}, N={"#  #","## #","# ##","#  #","#  #"}, O={" ## ","#  #","#  #","#  #"," ## "},
+ P={"### ","#  #","### ","#   ","#   "}, Q={" ## ","#  #","#  #","# ##"," ###"}, R={"### ","#  #","### ","# # ","#  #"},
+ S={" ###","#   "," ## ","   #","### "}, T={"#####","  #  ","  #  ","  #  ","  #  "}, U={"#  #","#  #","#  #","#  #"," ## "},
+ V={"#   #","#   #"," # # "," # # ","  #  "}, W={"#   #","#   #","# # #","## ##","#   #"}, X={"#   #"," # # ","  #  "," # # ","#   #"},
+ Y={"#   #"," # # ","  #  ","  #  ","  #  "}, Z={"####","   #"," ## ","#   ","####"}, [" "]={"  ","  ","  ","  ","  "},
+}
+
+function RealmRivalScreen:drawAsciiTitle(bb, text, x, y, w, scale)
+    local lines={"","","","",""}
+    for character in text:upper():gmatch(".") do
+        local glyph=ASCII_TITLE_GLYPHS[character] or ASCII_TITLE_GLYPHS[" "]
+        for row=1,5 do lines[row]=lines[row]..glyph[row].." " end
+    end
+    local size=math.max(7,math.floor(8*scale))
+    local line_h=math.max(9,math.floor(10*scale))
+    for row,line in ipairs(lines) do self:drawText(bb,line,x,y+(row-1)*line_h,w,line_h,size,true,Blitbuffer.COLOR_BLACK) end
+    return line_h*5
+end
+
 function RealmRivalScreen:onClose()
     if self.plugin.overlay == self then self.plugin.overlay = nil end
     UIManager:close(self)
@@ -1028,13 +1054,10 @@ end
 
 function RealmRivalScreen:drawRealmPage(bb, scale, margin, gap, controls_y, control_h)
     local w = self.screen_w
-    local art_h = math.max(70, math.floor(86 * scale))
-    self:drawText(bb, "THE REALM", margin, margin, w - margin * 2, math.floor(22 * scale), 15, true)
+    local art_h = self:drawAsciiTitle(bb,"THE REALM",margin,margin,w-margin*2,scale) + gap
     local art = { "      /\\", "     /  \\", "    /____\\", "    | [] |", "   _|____|_" }
-    for i, line in ipairs(art) do
-        self:drawText(bb, line, margin, margin + math.floor(21 * scale) + (i - 1) * math.max(10, math.floor(11 * scale)),
-            w - margin * 2, math.max(10, math.floor(11 * scale)), 8, true)
-    end
+    -- The title itself is the decorative element; the old house glyph is no
+    -- longer painted so its space can belong to the four realm descriptions.
     local grid_y = margin + art_h
     local grid_h = controls_y - gap - grid_y
     local cell_w = math.floor((w - margin * 2 - gap) / 2)
@@ -1046,9 +1069,9 @@ function RealmRivalScreen:drawRealmPage(bb, scale, margin, gap, controls_y, cont
         bb:paintRect(x, y, cell_w, cell_h, current and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE)
         bb:paintBorder(x, y, cell_w, cell_h, current and 3 or 1, Blitbuffer.COLOR_BLACK)
         self:drawText(bb, (current and "* " or "") .. REALM_NAMES[level], x + 4, y + 3, cell_w - 8,
-            math.max(16, math.floor(19 * scale)), 9, true)
+            math.max(16, math.floor(19 * scale)), 11, true)
         self:drawFittedText(bb, self:realmCellText(level), x + 5, y + math.max(20, math.floor(23 * scale)),
-            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 8, false, Blitbuffer.COLOR_BLACK)
+            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 10, false, Blitbuffer.COLOR_BLACK)
     end
     self:drawButton(bb, {text="RIVAL ›", callback=function() self.page=2; UIManager:setDirty(self,"ui") end},
         margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
@@ -1058,30 +1081,38 @@ end
 
 function RealmRivalScreen:drawRivalPage(bb, scale, margin, gap, controls_y, control_h)
     local w = self.screen_w
-    local art_h = math.max(82, math.floor(98 * scale))
-    self:drawText(bb, "THE RIVAL", margin, margin, w - margin * 2, math.floor(22 * scale), 15, true)
+    local art_h = self:drawAsciiTitle(bb,self.plugin.game.rival,margin,margin,w-margin*2,scale) + gap
     local art = { [=[      .-^^^^-.]=], [=[     /  o  o  \]=], [=[    |    /\    |]=], [=[    |   \____/  |]=], [=[     \  /||\  /]=], [=[      '------']=] }
-    for i, line in ipairs(art) do
-        self:drawText(bb, line, margin, margin + math.floor(21 * scale) + (i - 1) * math.max(10, math.floor(11 * scale)),
-            w - margin * 2, math.max(10, math.floor(11 * scale)), 8, true)
-    end
+    -- The rival name is the heading; keep the score panel free for details.
     local score = self.plugin:liveScore()
-    local lines = { "RIVAL: " .. self.plugin.game.rival }
+    local lines = {}
     if not score.rival then
         lines[#lines + 1] = "No rival score. Maximize Camelot's Renown."
         lines[#lines + 1] = "Camelot: " .. score.total .. " Renown"
     else
+        local difficulty
         for _, category in ipairs(score.rival_breakdown) do
-            lines[#lines + 1] = category.label .. ": " .. string.format("%+d", category.points)
-            lines[#lines + 1] = "  " .. category.formula .. (category.active and "" or " (inactive)")
+            if category.label == "Base" then
+                lines[#lines + 1]="Base: "..category.points
+            elseif category.label == "Unrest" then
+                lines[#lines + 1]="Your Unrest: "..score.unrest
+                lines[#lines + 1]="Your Prosperity: "..score.prosperity
+            elseif category.label:find("Rival difficulty:",1,true) then
+                difficulty=category.label..": "..string.format("%+d",category.points)
+            else
+                local icon = category.label == "Sprouts" and " "..Scoring.symbols.sprout
+                    or (category.label:find("ships",1,true) and " "..Scoring.symbols.ship or "")
+                lines[#lines + 1]=category.label..icon..": "..category.formula..": "..category.points
+            end
         end
+        if difficulty then lines[#lines + 1]=difficulty end
         lines[#lines + 1] = ""
         lines[#lines + 1] = "RIVAL TOTAL: " .. score.rival .. " Renown"
         lines[#lines + 1] = "CAMELOT: " .. score.total .. " Renown"
         lines[#lines + 1] = "MARGIN: " .. string.format("%+d", score.total - score.rival) .. " (ties lose)"
     end
     self:drawFittedText(bb, table.concat(lines, "\n"), margin + 4, margin + art_h, w - margin * 2 - 8,
-        controls_y - gap - (margin + art_h), 8, false, Blitbuffer.COLOR_BLACK)
+        controls_y - gap - (margin + art_h), 13, false, Blitbuffer.COLOR_BLACK)
     self:drawButton(bb, {text="‹ REALM", callback=function() self.page=1; UIManager:setDirty(self,"ui") end},
         margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
     self:drawButton(bb, {text="BACK", callback=function() self:onClose() end},
