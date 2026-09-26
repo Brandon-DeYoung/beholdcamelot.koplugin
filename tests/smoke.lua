@@ -150,8 +150,10 @@ assert(plugin.overlay and plugin.overlay.title == "Develop realm cost"
 plugin:closeOverlay(false)
 round_end_board:paintTo(bb, 0, 0)
 round_end_board.tap_holdings[3].callback() -- Pile-top Realm marker.
-assert(plugin.overlay and plugin.overlay.title == "Realm / Rival"
-    and plugin.overlay.text:find("NEXT REALM UPGRADE", 1, true), "Realm marker did not open upgrade information")
+assert(plugin.overlay and plugin.overlay.name == "beholdcamelot_realm_rival" and plugin.overlay.page == 1,
+    "Realm marker did not open the Realm/Rival page")
+plugin.overlay:paintTo(bb, 0, 0)
+assert(#plugin.overlay.tap_holdings == 2, "Realm page navigation was not drawn")
 plugin:closeOverlay(false)
 round_end_board:focus(0)
 round_end_board:paintTo(bb, 0, 0)
@@ -169,6 +171,11 @@ plugin.game.deck = {
 }
 plugin.game.awaiting_draw = true
 plugin.game.round_end = false
+assert(plugin:storedRevealText(2) == "reveals after 1 card", "stored reveal distance is wrong")
+plugin:showStored()
+assert(plugin.overlay.buttons[1][1].text:find("reveals after 1 card", 1, true),
+    "Stored list does not show reveal distance")
+plugin:closeOverlay(false)
 plugin:manualDraw()
 assert(plugin.overlay and plugin.overlay.title:find("Stored card warning", 1, true),
     "manual draw did not warn before exposing a stored card")
@@ -727,11 +734,14 @@ for _,rival in ipairs({"Morgan le Fay","Mordred","King Lot","Lucius"}) do
 end
 local before=fingerprint(plugin.game)
 plugin:showRealm()
-assert(plugin.overlay.title=="Realm / Rival" and plugin.overlay.text:find("Rival total:",1,true))
-assert(plugin.overlay.text:find("printed material icons",1,true) and fingerprint(plugin.game)==before)
+assert(plugin.overlay.name=="beholdcamelot_realm_rival" and plugin.overlay.page==1)
+plugin.overlay:paintTo(bb,0,0)
+plugin.overlay.tap_holdings[1].callback()
+assert(plugin.overlay.page==2 and fingerprint(plugin.game)==before)
 plugin.game.rival="Chronicle of the Realm"
 plugin:showRealm()
-assert(plugin.overlay.text:find("No rival categories",1,true))
+plugin.overlay.page=2; plugin.overlay:paintTo(bb,0,0)
+assert(plugin.overlay.name=="beholdcamelot_realm_rival")
 assert(#plugin:liveScore().rival_breakdown==0 and plugin:liveScore().rival==nil)
 print("Rival category reconciliation across realms, orientations and difficulty modifiers passed")
 

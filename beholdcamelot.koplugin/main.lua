@@ -1001,6 +1001,106 @@ function BeholdCamelot:previewCard(id)
     UIManager:show(CardPreview:new{plugin=self,card_id=id,preview_level=self.game.levels[id]})
 end
 
+-- Realm and rival information is deliberately a drawn two-page view rather
+-- than a scrolling text dialog: the Realm page keeps all four upgrade paths
+-- visible together, while the Rival page keeps the live arithmetic together.
+local RealmRivalScreen = BeholdCamelotGameScreen:extend{modal=true,name="beholdcamelot_realm_rival"}
+
+function RealmRivalScreen:onClose()
+    if self.plugin.overlay == self then self.plugin.overlay = nil end
+    UIManager:close(self)
+    self.plugin:refreshBoard(true)
+    return true
+end
+
+function RealmRivalScreen:realmCellText(level)
+    local name = REALM_NAMES[level]
+    if level == 4 then
+        return REALM_DATA[level].effect .. "\n\nFINAL REALM: no further upgrade."
+    end
+    local upgrades = {
+        "UPGRADE TO THE FELLOWSHIP: abandon 1 controlled Holding of any wealth and pay 1 material.",
+        "UPGRADE TO ARTHUR'S EMPIRE: abandon controlled Holdings totaling exactly 3 wealth.",
+        "UPGRADE TO THE GRAIL QUEST: abandon controlled Holdings totaling exactly 4 wealth; Galahad must be active.",
+    }
+    return REALM_DATA[level].effect .. "\n\n" .. upgrades[level]
+end
+
+function RealmRivalScreen:drawRealmPage(bb, scale, margin, gap, controls_y, control_h)
+    local w = self.screen_w
+    local art_h = math.max(70, math.floor(86 * scale))
+    self:drawText(bb, "THE REALM", margin, margin, w - margin * 2, math.floor(22 * scale), 15, true)
+    local art = { "      /\\", "     /  \\", "    /____\\", "    | [] |", "   _|____|_" }
+    for i, line in ipairs(art) do
+        self:drawText(bb, line, margin, margin + math.floor(21 * scale) + (i - 1) * math.max(10, math.floor(11 * scale)),
+            w - margin * 2, math.max(10, math.floor(11 * scale)), 8, true)
+    end
+    local grid_y = margin + art_h
+    local grid_h = controls_y - gap - grid_y
+    local cell_w = math.floor((w - margin * 2 - gap) / 2)
+    local cell_h = math.floor((grid_h - gap) / 2)
+    for level = 1, 4 do
+        local col, row = (level - 1) % 2, math.floor((level - 1) / 2)
+        local x, y = margin + col * (cell_w + gap), grid_y + row * (cell_h + gap)
+        local current = level == self.plugin.game.realm_level
+        bb:paintRect(x, y, cell_w, cell_h, current and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE)
+        bb:paintBorder(x, y, cell_w, cell_h, current and 3 or 1, Blitbuffer.COLOR_BLACK)
+        self:drawText(bb, (current and "* " or "") .. REALM_NAMES[level], x + 4, y + 3, cell_w - 8,
+            math.max(16, math.floor(19 * scale)), 9, true)
+        self:drawFittedText(bb, self:realmCellText(level), x + 5, y + math.max(20, math.floor(23 * scale)),
+            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 8, false, Blitbuffer.COLOR_BLACK)
+    end
+    self:drawButton(bb, {text="RIVAL ›", callback=function() self.page=2; UIManager:setDirty(self,"ui") end},
+        margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
+    self:drawButton(bb, {text="BACK", callback=function() self:onClose() end},
+        math.floor((w + margin) / 2), controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
+end
+
+function RealmRivalScreen:drawRivalPage(bb, scale, margin, gap, controls_y, control_h)
+    local w = self.screen_w
+    local art_h = math.max(82, math.floor(98 * scale))
+    self:drawText(bb, "THE RIVAL", margin, margin, w - margin * 2, math.floor(22 * scale), 15, true)
+    local art = { [=[      .-^^^^-.]=], [=[     /  o  o  \]=], [=[    |    /\    |]=], [=[    |   \____/  |]=], [=[     \  /||\  /]=], [=[      '------']=] }
+    for i, line in ipairs(art) do
+        self:drawText(bb, line, margin, margin + math.floor(21 * scale) + (i - 1) * math.max(10, math.floor(11 * scale)),
+            w - margin * 2, math.max(10, math.floor(11 * scale)), 8, true)
+    end
+    local score = self.plugin:liveScore()
+    local lines = { "RIVAL: " .. self.plugin.game.rival }
+    if not score.rival then
+        lines[#lines + 1] = "No rival score. Maximize Camelot's Renown."
+        lines[#lines + 1] = "Camelot: " .. score.total .. " Renown"
+    else
+        for _, category in ipairs(score.rival_breakdown) do
+            lines[#lines + 1] = category.label .. ": " .. string.format("%+d", category.points)
+            lines[#lines + 1] = "  " .. category.formula .. (category.active and "" or " (inactive)")
+        end
+        lines[#lines + 1] = ""
+        lines[#lines + 1] = "RIVAL TOTAL: " .. score.rival .. " Renown"
+        lines[#lines + 1] = "CAMELOT: " .. score.total .. " Renown"
+        lines[#lines + 1] = "MARGIN: " .. string.format("%+d", score.total - score.rival) .. " (ties lose)"
+    end
+    self:drawFittedText(bb, table.concat(lines, "\n"), margin + 4, margin + art_h, w - margin * 2 - 8,
+        controls_y - gap - (margin + art_h), 8, false, Blitbuffer.COLOR_BLACK)
+    self:drawButton(bb, {text="‹ REALM", callback=function() self.page=1; UIManager:setDirty(self,"ui") end},
+        margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
+    self:drawButton(bb, {text="BACK", callback=function() self:onClose() end},
+        math.floor((w + margin) / 2), controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
+end
+
+function RealmRivalScreen:paintTo(bb, x, y)
+    local w, h = self.screen_w, self.screen_h
+    local scale = math.min(w / 600, h / 800)
+    local margin = math.max(6, math.floor(8 * scale))
+    local gap = math.max(3, math.floor(5 * scale))
+    local control_h = math.max(40, math.floor(46 * scale))
+    local controls_y = h - margin - control_h
+    self.tap_holdings = {}
+    bb:paintRect(x, y, w, h, Blitbuffer.COLOR_WHITE)
+    if self.page == 2 then self:drawRivalPage(bb, scale, margin, gap, controls_y, control_h)
+    else self:drawRealmPage(bb, scale, margin, gap, controls_y, control_h) end
+end
+
 function BeholdCamelot:confirmQuit()
     UIManager:show(ConfirmBox:new{
         text="Are you sure you want to quit? Your game will be saved.",
@@ -2189,15 +2289,7 @@ function BeholdCamelot:showRealmUpgrade()
 end
 
 function BeholdCamelot:showRealm()
-    local level = self.game.realm_level
-    local s=self:liveScore()
-    local lines={"REALM: "..REALM_NAMES[level],REALM_DATA[level].effect,
-        "Current realm scoring: "..s.realm.." Renown", "",self:realmUpgradeText(), "",self:rivalScoreText(s)}
-    self:showOverlay(TextViewer:new{
-        modal=true,
-        title="Realm / Rival",
-        text=table.concat(lines,"\n"),
-    })
+    self:showOverlay(RealmRivalScreen:new{plugin=self,page=1})
 end
 
 function BeholdCamelot:changeLevel(id, delta)
@@ -2383,6 +2475,19 @@ function BeholdCamelot:endTurnTop()
     self:showGame()
 end
 
+function BeholdCamelot:storedRevealText(deck_index)
+    local pulls = 0
+    for index = 1, deck_index - 1 do
+        local entry = self.game.deck[index]
+        if entry.marker == "realm" then
+            return string.format("%d card%s, then Realm (next round)", pulls, pulls == 1 and "" or "s")
+        end
+        if entry.id then pulls = pulls + 1 end
+    end
+    if pulls == 0 then return "at pile top: next pull reveals it" end
+    return string.format("reveals after %d card%s", pulls, pulls == 1 and "" or "s")
+end
+
 function BeholdCamelot:showStored()
     local entries = self:storedEntries()
     local rows = {}
@@ -2390,7 +2495,8 @@ function BeholdCamelot:showStored()
         local deck_index = wrapped.index
         local entry = wrapped.entry
         rows[#rows + 1] = {{
-            text=string.format("%s - %s %d", self:cardLabel(entry.id), entry.stored.kind, entry.stored.amount),
+            text=string.format("%s - %s %d - %s", self:cardLabel(entry.id), entry.stored.kind,
+                entry.stored.amount, self:storedRevealText(deck_index)),
             callback=function() self:showStoredCard(deck_index) end,
         }}
     end
