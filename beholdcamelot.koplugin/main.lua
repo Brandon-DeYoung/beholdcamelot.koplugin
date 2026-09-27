@@ -6,6 +6,7 @@ local Device = require("device")
 local Font = require("ui/font")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
+local ImageWidget = require("ui/widget/imagewidget")
 local InfoMessage = require("ui/widget/infomessage")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LuaSettings = require("luasettings")
@@ -15,6 +16,27 @@ local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local _ = require("gettext")
 local Scoring = dofile((debug.getinfo(1, "S").source:match("^@(.*/)") or "") .. "scoring.lua")
+local PLUGIN_DIR = (debug.getinfo(1, "S").source:match("^@(.*/)") or "")
+
+-- Keying icons are original black/white PNGs in icons/ (not game assets).
+-- White variants (*_w.png) are for dark card bands; ImageWidget scales them
+-- to fit the requested box, keeping aspect ratio.
+local key_icon_cache = {}
+local function keyIconWidget(key, size, white)
+    size = math.max(8, math.floor(size or 16))
+    local cache_key = key .. ":" .. size .. (white and ":w" or ":b")
+    local widget = key_icon_cache[cache_key]
+    if not widget then
+        widget = ImageWidget:new{
+            file = PLUGIN_DIR .. "icons/" .. key .. (white and "_w" or "") .. ".png",
+            width = size, height = size,
+            scale_factor = 0,
+            alpha = true,
+        }
+        key_icon_cache[cache_key] = widget
+    end
+    return widget
+end
 
 local BeholdCamelot = WidgetContainer:extend{
     name = "beholdcamelot",
@@ -55,19 +77,19 @@ local RIVAL_DIFFICULTIES = { Casual=-40, Easy=-20, Normal=0, Hard=20, Impossible
 local STRATEGIES = {}
 STRATEGIES["Chronicle of the Realm"] = [[PLAN: Maximize final Camelot Renown; there is no rival threshold. Build affordable storage and development, not a fixed round-by-round opening. Degrading Balin's Fatal Quest can fund materials; conquest supports Camelot and later realm costs.
 
-FINISH: Compare each change's Renown gain with lost controlled wealth, abandoned cards and unrest. All active faces score, even in the pile. The Fellowship rewards prosperity; Arthur's Empire rewards Allies; The Grail Quest rewards total levels but needs Galahad. An upgrade is not automatically better. The test walks validate state consistency, not optimal play.]]
-STRATEGIES["Mordred"] = [[TARGET: Win the Renown margin, not just Camelot's score. Each sprout removes 4 rival Renown. Almsgiving/Customary Dues and Grain Stores can also score from sprouts. Caerleon's later faces supply sprouts, but check their unrest and conversion costs.
+FINISH: Compare each change's Renown gain with lost controlled wealth, abandoned cards and unrest. All active faces score, even in the pile. The Fellowship rewards prosperity; Arthur's Empire rewards Allies; The Grail Quest rewards total levels but needs Galahad. An upgrade is not automatically better. The test walkthroughs validate state consistency, not optimal play.]]
+STRATEGIES["Mordred"] = [[TARGET: Win the Renown margin, not just Camelot's score. Each crops removes 4 rival Renown. Almsgiving/Customary Dues and Grain Stores can also score from crops. Caerleon's later faces supply crops, but check their unrest and conversion costs.
 
-WATCH: Each unrest adds 1 rival Renown even when covered; uncovered unrest also costs Camelot 2. Prosperity covers Camelot's penalty but does not remove Mordred's bonus. In The Crown/The Fellowship each ship adds 2 rival Renown. Arthur's Empire adds 2 per level-3+ card; The Grail Quest adds 3.
+WATCH: Each unrest adds 1 rival Renown even when covered; uncovered unrest also costs Camelot 2. Prosperity covers Camelot's penalty but does not remove Mordred's bonus. In The Crown/The Fellowship each navy adds 2 rival Renown. Arthur's Empire adds 2 per level-3+ card; The Grail Quest adds 3.
 
 FINISH: The Fellowship is a useful low-unrest candidate, not a guaranteed best realm. Compare its prosperity score against Arthur's Empire's Allies and its high-level penalty. Avoid late upgrades that improve Camelot less than the rival. You must finish strictly ahead.]]
 STRATEGIES["Morgan le Fay"] = [[CHOOSE A FINISH: The Crown/The Fellowship gives Morgan le Fay +6 per active Holding CARD, not per wealth and not only controlled Holdings. Merely abandoning a Holding does not remove that term; changing its active face does.
 
-ARTHUR'S EMPIRE: Each lyre cuts 3 rival Renown. Corbenic, Merlin's Counsel and Camelot can supply lyres; balance that against Arthur's Empire's 7 Renown per Ally and conversion costs.
+ARTHUR'S EMPIRE: Each culture cuts 3 rival Renown. Corbenic, Merlin's Counsel and Camelot can supply culture; balance that against Arthur's Empire's 7 Renown per Ally and conversion costs.
 
-THE GRAIL QUEST: Each bag cuts 5 rival Renown. Royal Levies/Extraordinary Levy, trade and bag-rich Allies can help, but unrest and lost lyres still matter. Galahad is required; account for all realm upgrade costs.
+THE GRAIL QUEST: Each coin cuts 5 rival Renown. Royal Levies/Extraordinary Levy, trade and coin-rich Allies can help, but unrest and lost culture still matter. Galahad is required; account for all realm upgrade costs.
 
-FINISH: Compare the live margin before committing to a realm. Culture alone is not the Grail Quest plan: bags are. These are scoring-based plans, not proven winning lines.]]
+FINISH: Compare the live margin before committing to a realm. Culture alone is not the Grail Quest plan: coins are. These are scoring-based plans, not proven winning lines.]]
 STRATEGIES["King Lot"] = [[PRIORITY: Controlled wealth is powerful: +1 Camelot Renown and -3 rival Renown per extra wealth, before other effects. Develop and retain valuable Holdings; do not sacrifice them for a realm upgrade without counting the loss. Fifteen wealth is a useful target, not a cap or requirement.
 
 MILITARY: At 11 military, their prosperity multiplier drops from 2 to 1. Count whether that whole-score reduction repays the military upgrades and any added unrest. Controlled Gaul can contribute extra military through its scoring effect.
@@ -75,11 +97,11 @@ MILITARY: At 11 military, their prosperity multiplier drops from 2 to 1. Count w
 PROSPERITY: Still cover unrest, but excess prosperity also scores for this rival. In The Fellowship, covered excess prosperity gives Camelot +1 but the rival +1 at 11 military, or +2 below it.
 
 FINISH: Favor wealth and a deliberate military threshold over automatic Arthur's Empire/Ally conversion. Win strictly above the rival.]]
-STRATEGIES["Lucius"] = [[FIRST DECISION: Their 11-wealth threshold counts wealth on ALL active Holding faces, controlled or not. At 11+, they gain 2 per card without a blue banner. At 10 or less, each ship cuts 6 rival Renown. Check the actual margin on both sides: crossing 11 is not automatically good.
+STRATEGIES["Lucius"] = [[FIRST DECISION: Their 11-wealth threshold counts wealth on ALL active Holding faces, controlled or not. At 11+, they gain 2 per card without a blue banner. At 10 or less, each navy cuts 6 rival Renown. Check the actual margin on both sides: crossing 11 is not automatically good.
 
 ARTHUR'S EMPIRE: Removes the entire printed-materials term and scores 7 per Ally. Plan abandonment and prerequisites before converting Holdings: conversion changes the wealth branch, loses controlled income and may add unrest.
 
-OTHER REALMS: Each printed available-material icon cuts 2 rival Renown. Stored materials do not count for this term. Above the wealth threshold, blue-banner faces reduce the non-blue penalty; below it, ships matter instead.
+OTHER REALMS: Each printed available-material icon cuts 2 rival Renown. Stored materials do not count for this term. Above the wealth threshold, blue-banner faces reduce the non-blue penalty; below it, navy matter instead.
 
 FINISH: Keep useful resource faces, compare Arthur's Empire against the current realm, and protect a strictly positive final margin. No fixed three-Ally prescription is guaranteed.]]
 local CARD_TYPES = {
@@ -145,7 +167,7 @@ local ACTIONS = {
     kin={
         {{label="Add +1 to current conquest", conquer_boost=1, interrupt=true}},
         {{label="Pay 1P; store 2M", costs={population=1}, store_materials=2}},
-        {{label="Store 1M per controlled bag icon", store_materials_by_bags=true}},
+        {{label="Store 1M per controlled coin icon", store_materials_by_bags=true}},
         {{label="Passive card", passive=true}},
     },
     lake={
@@ -174,7 +196,7 @@ local ACTIONS = {
     },
     marches={
         {{label="Pay 1P; store 2M", costs={population=1}, store_materials=2}},
-        {{label="Discard cards; draw for their bag icons", marches_discard=true}},
+        {{label="Discard cards; draw for their coin icons", marches_discard=true}},
         {{label="Pay 1M; store 2P", costs={materials=1}, store_population=2}},
         {{label="Passive scoring card", passive=true}},
     },
@@ -240,7 +262,7 @@ local FACE_DATA = {
     kin={
         {store="1 material", play="Crown-era only (The Crown/The Fellowship)", effect="During conquest, increase its strength by 1. If The Round Table discards this card, refill to six cards after that action."},
         {store="1 material", play="Quest-era only (Arthur's Empire/The Grail Quest)", effect="Spend 1 population to generate Store 2 materials. When this card is discarded for a different action, you may Draw 1."},
-        {store="1 material", play="Quest-era only (Arthur's Empire/The Grail Quest)", effect="Generate Store materials equal to the total bag icons on controlled Holdings."},
+        {store="1 material", play="Quest-era only (Arthur's Empire/The Grail Quest)", effect="Generate Store materials equal to the total coin icons on controlled Holdings."},
         {store="No available resource", play="Any realm", effect="While active, Quest-era banners do not prevent playing cards. Development and conquest still obey banners. Scoring is -5 in the Crown era, plus 9 if Sarras is active."},
     },
     lake={
@@ -275,9 +297,9 @@ local FACE_DATA = {
     },
     marches={
         {store="1 population", play="The Crown only", effect="Spend 1 population to generate Store 2 materials."},
-        {store="No available resource", play="Crown-era only (The Crown/The Fellowship)", effect="Discard any number of cards. Draw as many cards as the total bag icons on those discarded cards."},
+        {store="No available resource", play="Crown-era only (The Crown/The Fellowship)", effect="Discard any number of cards. Draw as many cards as the total coin icons on those discarded cards."},
         {store="1 material", play="Any realm", effect="Spend 1 material to generate Store 2 population."},
-        {store="3 population", play="Any realm", requirement="Abandon one controlled Holding", effect="At scoring, every two lyre icons grant one additional prosperity."},
+        {store="3 population", play="Any realm", requirement="Abandon one controlled Holding", effect="At scoring, every two culture icons grant one additional prosperity."},
     },
     camelot={
         {store="1 population", play="Any realm", effect="Discard one card. Generate Store population equal to the number of controlled Holdings."},
@@ -325,7 +347,7 @@ FACE_DATA.gaul[2].requirement = "Pay 1 material"
 FACE_DATA.gaul[4].requirement = "King Ban must be active"
 
 local REALM_DATA = {
-    {effect="The Crown uses Crown-era banners. Score 1 Renown per bag icon and include 5 unrest. At round end, abandon one controlled Holding of any wealth and pay 1 material to enter The Fellowship."},
+    {effect="The Crown uses Crown-era banners. Score 1 Renown per coin icon and include 5 unrest. At round end, abandon one controlled Holding of any wealth and pay 1 material to enter The Fellowship."},
     {effect="The Fellowship uses Crown-era banners. Score 1 Renown per prosperity. At round end, abandon controlled Holdings with at least 3 total wealth to enter Arthur's Empire."},
     {effect="Arthur's Empire uses Quest-era banners. Score 7 Renown per Ally. At round end, abandon controlled Holdings with at least 4 total wealth to enter The Grail Quest; Galahad must be active."},
     {effect="The Grail Quest uses Quest-era banners. Galahad is required to enter this realm. Score the sum of all active card levels divided by 3, rounded down."},
@@ -357,6 +379,23 @@ end
 
 local function plural(number, singular, plural_form)
     return tostring(number) .. " " .. (number == 1 and singular or (plural_form or singular .. "s"))
+end
+
+-- Expand compact resource shorthands for KOReader dialogs, which cannot
+-- paint inline icons: "2M" -> "2 materials", "1P" -> "1 population",
+-- standalone "M"/"P" -> "materials"/"population".
+local function expandResLabel(label)
+    local s = tostring(label or "")
+    s = s:gsub("(%d+)([MP])%f[^%a]", function(n, k)
+        n = tonumber(n)
+        if k == "M" then
+            return n .. " " .. (n == 1 and "material" or "materials")
+        end
+        return n .. " population"
+    end)
+    s = s:gsub("%f[%a]M%f[^%a]", "materials")
+    s = s:gsub("%f[%a]P%f[^%a]", "population")
+    return s
 end
 
 
@@ -481,12 +520,125 @@ local function shortPlay(value)
     return value:gsub(" only %(.+%)", ""):upper()
 end
 
+-- Words that become inline keying icons in descriptive ("rich") text. A trailing
+-- "icon"/"icons" word right after an icon is dropped, so "3 coin icons" paints
+-- as "3 [coin icon]" instead of "3 [coin icon] icons".
+local RICH_ICON_WORDS = {
+    military = "military",
+    transport = "transport",
+    culture = "culture",
+    coin = "coin", coins = "coin",
+    crop = "crops", crops = "crops",
+    luxury = "luxury",
+    navy = "navy",
+}
+
+-- Symbol sequences that become resource icons in rich text: [M] materials,
+-- [P] population (stored values on card bands), /\ holding wealth.
+local RICH_SPECIAL = {
+    ["[M]"] = "res_materials",
+    ["[P]"] = "res_population",
+    ["/\\"] = "res_wealth",
+}
+
+-- Split a paragraph into layout words; each word is a list of {text} / {icon} tokens.
+local function richWords(paragraph)
+    local words = {}
+    for word in paragraph:gmatch("%S+") do
+        local tokens = {}
+        local i = 1
+        while i <= #word do
+            local seq_len = 0
+            for seq, key in pairs(RICH_SPECIAL) do
+                if word:sub(i, i + #seq - 1) == seq then
+                    tokens[#tokens + 1] = { icon = key }
+                    seq_len = #seq
+                    break
+                end
+            end
+            if seq_len > 0 then
+                i = i + seq_len
+            else
+                local j = i
+                if word:sub(i, i):match("%a") then
+                while j <= #word and word:sub(j, j):match("%a") do j = j + 1 end
+                local alpha = word:sub(i, j - 1)
+                local key = RICH_ICON_WORDS[alpha:lower()]
+                tokens[#tokens + 1] = key and { icon = key } or { text = alpha }
+            else
+                while j <= #word and not word:sub(j, j):match("%a") do j = j + 1 end
+                tokens[#tokens + 1] = { text = word:sub(i, j - 1) }
+            end
+            i = j
+            end
+        end
+        words[#words + 1] = tokens
+    end
+    local out = {}
+    for _, tokens in ipairs(words) do
+        local prev = out[#out]
+        local first = tokens[1]
+        if prev and prev[#prev].icon and first and first.text
+            and first.text:lower():match("^icons?$") then
+            table.remove(tokens, 1)
+            if #tokens > 0 then out[#out + 1] = tokens end
+        else
+            out[#out + 1] = tokens
+        end
+    end
+    return out
+end
+
+-- Count inline keying icons in descriptive text, by key (used by tests).
+function BeholdCamelotGameScreen:richIconCounts(text)
+    local counts = {}
+    for paragraph in (tostring(text or "") .. "\n"):gmatch("(.-)\n") do
+        for _, tokens in ipairs(richWords(paragraph)) do
+            for _, t in ipairs(tokens) do
+                if t.icon then counts[t.icon] = (counts[t.icon] or 0) + 1 end
+            end
+        end
+    end
+    return counts
+end
 -- Measure using the same DPI-scaled font used to paint, not character counts.
-function BeholdCamelotGameScreen:layoutText(text, w, size, bold)
+function BeholdCamelotGameScreen:layoutText(text, w, size, bold, rich)
     local font = Font:getFace("smallinfofont", size)
     local fh = font.ftsize:getHeightAndAscender()
     local lines = {}
     local function width(s) return RenderText:sizeUtf8Text(0, 100000, font, s, true, bold or false).x end
+    if rich then
+        -- Wrap token words; an icon token takes a ~1em square like a wide glyph.
+        local icon_adv = math.max(8, math.ceil(fh) - 2)
+        local space_w = width(" ")
+        local function wordWidth(tokens)
+            local tw = 0
+            for _, t in ipairs(tokens) do tw = tw + (t.icon and icon_adv or width(t.text)) end
+            return tw
+        end
+        for paragraph in (text .. "\n"):gmatch("(.-)\n") do
+            local line, line_w = {}, 0
+            local function flush()
+                if #line > 0 then lines[#lines + 1] = line end
+                line, line_w = {}, 0
+            end
+            for _, tokens in ipairs(richWords(paragraph)) do
+                local tw = wordWidth(tokens)
+                if tw > w then
+                    -- Overlong word (icons never split): isolate it on its own line.
+                    flush()
+                    lines[#lines + 1] = { tokens }
+                else
+                    if line_w > 0 and line_w + space_w + tw > w then flush() end
+                    if #line > 0 then line_w = line_w + space_w end
+                    line[#line + 1] = tokens
+                    line_w = line_w + tw
+                end
+            end
+            flush()
+        end
+        return lines, math.ceil(fh) + 1
+    end
     for paragraph in (text .. "\n"):gmatch("(.-)\n") do
         local line = ""
         for word in paragraph:gmatch("%S+") do
@@ -506,20 +658,91 @@ function BeholdCamelotGameScreen:layoutText(text, w, size, bold)
     return lines, math.ceil(fh)+1
 end
 
-function BeholdCamelotGameScreen:drawFittedText(bb, text, x, y, w, h, preferred, bold, color)
+function BeholdCamelotGameScreen:drawFittedText(bb, text, x, y, w, h, preferred, bold, color, rich)
     local lines, lh, size
     for candidate=preferred,5,-1 do
         size=candidate
-        lines,lh=self:layoutText(text,w,size,bold)
+        lines,lh=self:layoutText(text,w,size,bold,rich)
         if #lines*lh<=h then break end
     end
     local capacity=math.max(0,math.floor(h/lh))
     for i=1,math.min(#lines,capacity) do
-        local line=lines[i]
-        if i==capacity and #lines>capacity then line="Tap card: Full text" end
-        self:drawText(bb,line,x,y+(i-1)*lh,w,lh,size,bold,color,true)
+        local yy=y+(i-1)*lh
+        if i==capacity and #lines>capacity then
+            self:drawText(bb,"Tap card: Full text",x,yy,w,lh,size,bold,color,true)
+        elseif rich then
+            self:paintRichLine(bb,lines[i],x,yy,w,lh,size,bold,color)
+        else
+            self:drawText(bb,lines[i],x,yy,w,lh,size,bold,color,true)
+        end
     end
     return #lines*lh<=h
+end
+
+
+-- Paint one rich-text line: token words laid out left to right, icons inline.
+-- white selects white icon variants (dark bands); center centers the line in w.
+function BeholdCamelotGameScreen:paintRichLine(bb, words, x, y, w, h, size, bold, color, white, center)
+    local face = Font:getFace("smallinfofont", math.max(5, math.floor(size)))
+    local function tw(s) return RenderText:sizeUtf8Text(0, 100000, face, s, true, bold or false).x end
+    local space_w = tw(" ")
+    local face_h, ascender = face.ftsize:getHeightAndAscender()
+    local text_h = math.ceil(face_h)
+    local icon_size = math.max(8, text_h - 2)
+    local col = color or Blitbuffer.COLOR_BLACK
+    local function tok_w(t) return t.icon and icon_size or tw(t.text) end
+    local cx = math.floor(x)
+    if center then
+        local total = 0
+        for wi, tokens in ipairs(words) do
+            if wi > 1 then total = total + space_w end
+            for _, t in ipairs(tokens) do total = total + tok_w(t) end
+        end
+        cx = math.floor(x + math.max(0, (w - total) / 2))
+    end
+    local baseline = math.floor(y + math.max(0, (h - text_h) / 2)) + math.floor(ascender + 0.5)
+    for wi, tokens in ipairs(words) do
+        if wi > 1 then cx = cx + space_w end
+        for _, t in ipairs(tokens) do
+            if t.icon then
+                self:drawKeyIcon(bb, t.icon, math.floor(cx),
+                    math.floor(y + math.max(0, (h - icon_size) / 2)), icon_size, white)
+                cx = cx + icon_size
+            else
+                local ww = tw(t.text)
+                RenderText:renderUtf8Text(bb, math.floor(cx), baseline, face, t.text,
+                    true, bold or false, col, math.max(1, math.floor(x + w - cx)))
+                cx = cx + ww
+            end
+        end
+    end
+end
+
+-- Paint one keying icon; white selects the white variant for dark bands.
+function BeholdCamelotGameScreen:drawKeyIcon(bb, key, x, y, size, white)
+    keyIconWidget(key, size, white):paintTo(bb, x, y)
+end
+
+-- Paint a flat list of keying icon keys left to right; returns width used.
+function BeholdCamelotGameScreen:drawKeyIcons(bb, keys, x, y, size, white)
+    if #keys == 0 then return 0 end
+    local gap = math.max(2, math.floor(size * 0.18))
+    local cx = x
+    for _, key in ipairs(keys) do
+        self:drawKeyIcon(bb, key, cx, y, size, white)
+        cx = cx + size + gap
+    end
+    return cx - x - gap
+end
+
+-- Card band resource summary, e.g. "2 [M] /\ 3"; rich text paints the symbols as icons.
+function BeholdCamelotGameScreen:bandResources(id, level)
+    local face = FACE_DATA[id] and FACE_DATA[id][level] or {}
+    local resources = (face.store or ""):gsub("materials?", "[M]"):gsub("population", "[P]")
+    if resources == "No available resource" then resources = "" end
+    local wealth = HOLDING_WEALTH[id] and HOLDING_WEALTH[id][level]
+    if wealth then resources = resources .. " /\\ " .. wealth end
+    return resources
 end
 
 function BeholdCamelotGameScreen:drawFace(bb, id, level, x, y, w, h, compact, active)
@@ -536,20 +759,22 @@ function BeholdCamelotGameScreen:drawFace(bb, id, level, x, y, w, h, compact, ac
     local icons={}
     for _,key in ipairs(Scoring.order) do
         local n=Scoring.faces[id][level].keys[key]
-        for i=1,n or 0 do icons[#icons+1]=Scoring.symbols[key] end
+        for i=1,n or 0 do icons[#icons+1]=key end
     end
-    local resources=(face.store or ""):gsub("materials?","[M]"):gsub("population","[P]")
-    if resources=="No available resource" then resources="" end
-    local wealth=HOLDING_WEALTH[id] and HOLDING_WEALTH[id][level]
-    if wealth then resources=resources.." /\\ "..wealth end
+    local resources = self:bandResources(id, level)
     local row_h=math.floor(band_h/2)
     local left_w=math.floor(w*.16)
     local right_w=math.floor(w*.30)
     self:drawFittedText(bb,"L"..level,x+5,y+border,left_w-5,row_h,compact and 9 or 12,true,band_text)
     self:drawText(bb,card_type:upper(),x+left_w,y+border,w-left_w-right_w,row_h,compact and 8 or 11,true,band_text)
-    self:drawText(bb,resources,x+w-right_w,y+border,right_w-5,row_h,compact and 8 or 11,true,band_text)
-    self:drawFittedText(bb,table.concat(icons," "),x+5,y+border+row_h,w-10,band_h-row_h,
-        compact and 9 or 12,true,band_text)
+    self:paintRichLine(bb, richWords(resources), x+w-right_w, y+border, right_w-5, row_h,
+        compact and 8 or 11, true, band_text, band_text == Blitbuffer.COLOR_WHITE, true)
+    -- Keying icon images replace the old ASCII row; white variant on dark bands.
+    do
+        local icon_size = math.max(8, band_h-row_h-4)
+        local white = band_text == Blitbuffer.COLOR_WHITE
+        self:drawKeyIcons(bb, icons, x+5, y+border+row_h+2, icon_size, white)
+    end
     local name_y = y + band_h + border
     local name_h = math.max(22, math.floor(h * 0.20))
     self:drawFittedText(bb, card.names[level], x + 5, name_y, w - 10, name_h,
@@ -560,7 +785,7 @@ function BeholdCamelotGameScreen:drawFace(bb, id, level, x, y, w, h, compact, ac
         "Renown: "..Scoring.rules[id][level],"Unrest "..stats.unrest.." / Prosperity "..stats.prosperity}
     if face.requirement then body[#body+1]="DEVELOP: "..face.requirement end
     self:drawFittedText(bb,table.concat(body,"\n"),x+5,info_y,w-10,y+h-info_y-5,
-        compact and 10 or 13,false,Blitbuffer.COLOR_BLACK)
+        compact and 10 or 13,false,Blitbuffer.COLOR_BLACK,true)
 end
 
 function BeholdCamelotGameScreen:drawRotatedFace(bb, id, level, x, y, w, h, compact, active)
@@ -631,27 +856,21 @@ function BeholdCamelotGameScreen:moveFocus(delta)
     self.plugin:refreshBoard(false)
 end
 
-function BeholdCamelotGameScreen:drawHeader(bb, scale, margin, close_size, deck_w, header_h)
+function BeholdCamelotGameScreen:drawHeader(bb, scale, margin, deck_w, header_h)
     local plugin, game = self.plugin, self.plugin.game
     local w = self.screen_w
     local deck_x = w - deck_w - margin
     local text_w = deck_x - margin * 2
-    self:drawText(bb, "BEHOLD: CAMELOT", margin, margin, text_w - close_size,
+    self:drawText(bb, "BEHOLD: CAMELOT", margin, margin, text_w,
         math.floor(28 * scale), 16, true, nil, true)
-    local close_x = deck_x - close_size - margin
-    bb:paintBorder(close_x, margin, close_size, close_size, 1, Blitbuffer.COLOR_BLACK)
-    self:drawText(bb, "×", close_x, margin, close_size, close_size, 20, true)
-    self:addTapHolding(close_x, margin, close_size, close_size, function()
-        plugin:confirmQuit()
-    end)
     local materials, population, slots = plugin:storedSummary()
     local line_h = math.max(18, math.floor(21 * scale))
     local sy = margin + math.floor(29 * scale)
     self:drawText(bb, string.format("R%d/%d  %s  vs %s", game.round, game.max_rounds,
         REALM_NAMES[game.realm_level], game.rival), margin, sy, text_w, line_h, 10, true, nil, true)
     sy = sy + line_h
-    self:drawText(bb, string.format("Deck %d  Stored %d/4 M%d P%d  Holdings %d/4", #game.deck,
-        slots, materials, population, #game.controlled), margin, sy, text_w, line_h, 8, false, nil, true)
+    self:paintRichLine(bb, richWords(string.format("Deck %d  Stored %d/4 [M]%d [P]%d  Holdings %d/4", #game.deck,
+        slots, materials, population, #game.controlled)), margin, sy, text_w, line_h, 8, false)
     sy = sy + line_h
     local score = plugin:liveScore()
     self:drawText(bb, string.format("SCORE %d%s  (tap for breakdown)", score.total,
@@ -660,10 +879,12 @@ function BeholdCamelotGameScreen:drawHeader(bb, scale, margin, close_size, deck_
     local top = game.deck[1]
     local pile_label = "PILE TOP"
     if top and top.stored then
-        pile_label = pile_label .. string.format(" — STORED %s%d", top.stored.kind == "materials" and "M" or "P", top.stored.amount)
+        pile_label = pile_label .. string.format(" — STORED %s%d",
+            top.stored.kind == "materials" and "[M]" or "[P]", top.stored.amount)
     end
-    self:drawText(bb, pile_label, deck_x, margin, deck_w, math.max(15, math.floor(18 * scale)), 8, true)
-    local deck_y = margin + math.max(15, math.floor(18 * scale))
+    local pile_h = math.max(15, math.floor(18 * scale))
+    self:paintRichLine(bb, richWords(pile_label), deck_x, margin, deck_w, pile_h, 8, true, nil, false, true)
+    local deck_y = margin + pile_h
     self:drawDeckTop(bb, deck_x, deck_y, deck_w, header_h - deck_y - margin, true)
     self:addTapHolding(deck_x, deck_y, deck_w, header_h - deck_y - margin, function()
         if top and top.marker == "realm" then
@@ -798,12 +1019,11 @@ function BeholdCamelotGameScreen:paintTo(bb, x, y)
     local scale = math.min(w / 600, h / 800)
     local margin = math.max(6, math.floor(8 * scale))
     local gap = math.max(3, math.floor(5 * scale))
-    local close_size = math.max(32, math.floor(38 * scale))
     local deck_w = math.max(105, math.floor(w * 0.29))
     local header_h = math.max(105, math.floor(140 * scale))
     self.tap_holdings = {}
     bb:paintRect(x, y, w, h, Blitbuffer.COLOR_WHITE)
-    self:drawHeader(bb, scale, margin, close_size, deck_w, header_h)
+    self:drawHeader(bb, scale, margin, deck_w, header_h)
     if self.view_mode == "focus" then
         self:paintFocus(bb, scale, margin, gap, header_h)
     else
@@ -952,10 +1172,10 @@ function BeholdCamelot:cardDetails(id)
         "STORE VALUE: " .. (face.store or "Not transcribed"),
         "PLAY / CONQUER: " .. (face.play or "Any realm"),
     }
-    if wealth then lines[#lines + 1] = "REGION WEALTH: " .. wealth end
+    if wealth then lines[#lines + 1] = "HOLDING WEALTH: " .. wealth end
     if face.requirement then lines[#lines + 1] = "DEVELOP: " .. face.requirement end
     lines[#lines + 1] = "EFFECT: " .. (face.effect or "No printed action.")
-    lines[#lines + 1] = "ICONS: " .. Scoring.icons(id, self.game.levels[id], true)
+    lines[#lines + 1] = "ICONS: " .. Scoring.icons(id, self.game.levels[id])
     lines[#lines + 1] = "CURRENT Renown: " .. self:liveScore().cards[id]
     lines[#lines + 1] = "Renown RULE: " .. Scoring.rules[id][self.game.levels[id]]
     return table.concat(lines, "\n")
@@ -963,6 +1183,8 @@ end
 
 -- A separate modal keeps the pending chooser mounted and never touches game state.
 local CardPreview = BeholdCamelotGameScreen:extend{modal=true,name="beholdcamelot_preview"}
+-- Escape/Back dismisses the preview, like KOReader's own dialogs.
+CardPreview.key_events = { Close = { { Device.input.group.Back } } }
 
 function CardPreview:onClose()
     UIManager:close(self)
@@ -991,7 +1213,7 @@ function CardPreview:paintTo(bb,x,y)
             UIManager:show(TextViewer:new{modal=true,title="Preview: "..CARD_BY_ID[id].names[l],
                 text="L"..l.." "..CARD_TYPES[id][l].."\nSTORE: "..d.store.."\nPLAY: "..(d.play or "Any realm")
                     ..(wealth and "\nWEALTH: "..wealth or "").."\n"..(d.effect or "No printed action.")
-                    .."\n"..Scoring.icons(id,l,true).."\nVP: "..Scoring.rules[id][l]
+                    .."\n"..Scoring.icons(id,l).."\nVP: "..Scoring.rules[id][l]
                     ..(d.requirement and "\nDEVELOP: "..d.requirement or "")})
         end},
         {text="Back to game / selection",callback=function() self:onClose() end},
@@ -1011,6 +1233,8 @@ end
 -- than a scrolling text dialog: the Realm page keeps all four upgrade paths
 -- visible together, while the Rival page keeps the live arithmetic together.
 local RealmRivalScreen = BeholdCamelotGameScreen:extend{modal=true,name="beholdcamelot_realm_rival"}
+-- Escape/Back dismisses the Realm/Rival/Icons pages, like KOReader's own dialogs.
+RealmRivalScreen.key_events = { Close = { { Device.input.group.Back } } }
 
 -- NV Script banners supplied by the user from patorjk.com's TAAG.
 local ASCII_TITLES = dofile((debug.getinfo(1, "S").source:match("^@(.*/)") or "") .. "titles.lua")
@@ -1038,12 +1262,15 @@ function RealmRivalScreen:drawAsciiTitle(bb, text, x, y, w, scale)
     end
     -- Center the complete canvas, never individual rows: short rows must keep
     -- their original left edge or the supplied artwork is destroyed.
+    -- Pad the top so the tallest glyphs of the first row never clip against
+    -- the header edge; the supplied artwork itself is untouched.
+    local top_pad = math.max(2, math.floor(3 * scale))
     local tx = math.floor(x + math.max(0, (w - widest) / 2))
     for row, line in ipairs(lines) do
-        RenderText:renderUtf8Text(bb, tx, y + (row - 1) * line_h + math.floor(ascender + .5),
+        RenderText:renderUtf8Text(bb, tx, top_pad + y + (row - 1) * line_h + math.floor(ascender + .5),
             face, line, false, false, Blitbuffer.COLOR_BLACK, w)
     end
-    return line_h * #lines + math.max(4, math.floor(4 * scale))
+    return top_pad + line_h * #lines + math.max(4, math.floor(4 * scale))
 end
 
 function RealmRivalScreen:onClose()
@@ -1086,7 +1313,7 @@ function RealmRivalScreen:drawRealmPage(bb, scale, margin, gap, controls_y, cont
         self:drawText(bb, (current and "* " or "") .. REALM_NAMES[level], x + 4, y + 3, cell_w - 8,
             math.max(18, math.floor(20 * scale)), 14, true)
         self:drawFittedText(bb, self:realmCellText(level), x + 5, y + math.max(20, math.floor(23 * scale)),
-            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 18, false, Blitbuffer.COLOR_BLACK)
+            cell_w - 10, cell_h - math.max(25, math.floor(28 * scale)), 18, false, Blitbuffer.COLOR_BLACK, true)
     end
     self:drawButton(bb, {text="RIVAL ›", callback=function() self.page=2; UIManager:setDirty(self,"ui") end},
         margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
@@ -1115,9 +1342,8 @@ function RealmRivalScreen:drawRivalPage(bb, scale, margin, gap, controls_y, cont
             elseif category.label:find("Rival difficulty:",1,true) then
                 difficulty=category.label..": "..string.format("%+d",category.points)
             else
-                local icon = category.label == "Sprouts" and " "..Scoring.symbols.sprout
-                    or (category.label:find("ships",1,true) and " "..Scoring.symbols.ship or "")
-                lines[#lines + 1]=category.label..icon..": "..category.formula..": "..category.points
+                -- Labels already name the icon ("Crops", "navy"); no symbol needed.
+                lines[#lines + 1]=category.label..": "..category.formula..": "..category.points
             end
         end
         if difficulty then lines[#lines + 1]=difficulty end
@@ -1127,7 +1353,7 @@ function RealmRivalScreen:drawRivalPage(bb, scale, margin, gap, controls_y, cont
         lines[#lines + 1] = "MARGIN: " .. string.format("%+d", score.total - score.rival) .. " (ties lose)"
     end
     self:drawFittedText(bb, table.concat(lines, "\n"), margin + 4, margin + art_h, w - margin * 2 - 8,
-        controls_y - gap - (margin + art_h), 18, false, Blitbuffer.COLOR_BLACK)
+        controls_y - gap - (margin + art_h), 18, false, Blitbuffer.COLOR_BLACK, true)
     local button_w = math.floor((w - margin * 2 - gap * 2) / 3)
     self:drawButton(bb, {text="‹ REALM", callback=function() self.page=1; UIManager:setDirty(self,"ui") end},
         margin, controls_y, button_w, control_h, scale)
@@ -1144,27 +1370,47 @@ function RealmRivalScreen:drawIconsPage(bb, scale, margin, gap, controls_y, cont
     local intro_h = math.floor(76 * scale)
     self:drawFittedText(bb,
         "Count icons on active card faces throughout your civilization, including the pile. Each printed symbol counts once. Icons matter when a card or scoring rule refers to them.",
-        margin+5, margin+title_h, w-margin*2-10, intro_h, 14, false)
-    local entries = {
-        {"military", "Military", "The sword-and-shield keying icon."},
-        {"wheel", "Wheel", "Count each wheel for rules that refer to wheels."},
-        {"lyre", "Lyre", "Count each lyre for rules that refer to lyres."},
-        {"bag", "Bag", "A keying icon, not stored materials or population."},
-        {"sprout", "Sprout", "A keying icon, separate from prosperity."},
+        margin+5, margin+title_h, w-margin*2-10, intro_h, 14, false, nil, true)
+    local keying = {
+        {"military", "Military", "A sword behind a shield."},
+        {"transport", "Transport", "Count each transport icon for rules that refer to transport."},
+        {"culture", "Culture", "Count each culture icon for rules that refer to culture."},
+        {"coin", "Coin", "A keying icon, not stored materials or population."},
+        {"crops", "Crops", "A keying icon, separate from prosperity."},
         {"luxury", "Luxury", "Count each luxury icon for luxury-based scoring."},
-        {"ship", "Ship", "Count each ship for rules that refer to ships."},
+        {"navy", "Navy", "Count each navy icon for rules that refer to navy."},
+    }
+    local resources = {
+        {"res_materials", "Materials", "Stored goods, shown on card bands."},
+        {"res_population", "Population", "Stored people, shown on card bands."},
+        {"res_wealth", "Holding wealth", "A Holding's value, shown on card bands."},
+    }
+    local sections = {
+        { title = nil, entries = keying },
+        { title = "RESOURCES", entries = resources },
     }
     local start_y = margin + title_h + intro_h + gap
-    local row_h = math.floor((controls_y-gap-start_y) / #entries)
+    local header_h = math.floor(24 * scale)
+    local total_rows = #keying + #resources
+    local row_h = math.floor((controls_y - gap - start_y - header_h) / total_rows)
     local symbol_w = math.floor(w * .20)
-    for index, entry in ipairs(entries) do
-        local y = start_y + (index-1)*row_h
-        bb:paintBorder(margin, y, w-margin*2, row_h, 1, Blitbuffer.COLOR_DARK_GRAY)
-        self:drawText(bb, Scoring.symbols[entry[1]], margin+4, y, symbol_w-8, row_h, 22, true)
-        local text_x = margin+symbol_w
-        local name_h = math.floor(row_h*.40)
-        self:drawText(bb, entry[2], text_x, y+2, w-margin-text_x-5, name_h, 18, true, nil, true)
-        self:drawFittedText(bb, entry[3], text_x, y+name_h, w-margin-text_x-5, row_h-name_h-4, 14, false)
+    local y = start_y
+    for _, section in ipairs(sections) do
+        if section.title then
+            self:drawText(bb, section.title, margin, y, w - margin * 2, header_h, 14, true, nil, true)
+            y = y + header_h
+        end
+        for _, entry in ipairs(section.entries) do
+            bb:paintBorder(margin, y, w-margin*2, row_h, 1, Blitbuffer.COLOR_DARK_GRAY)
+            local icon_size = math.max(8, math.min(row_h-8, symbol_w-12))
+            self:drawKeyIcon(bb, entry[1], margin+4+math.floor((symbol_w-8-icon_size)/2),
+                y+math.floor((row_h-icon_size)/2), icon_size, false)
+            local text_x = margin+symbol_w
+            local name_h = math.floor(row_h*.40)
+            self:drawText(bb, entry[2], text_x, y+2, w-margin-text_x-5, name_h, 18, true, nil, true)
+            self:drawFittedText(bb, entry[3], text_x, y+name_h, w-margin-text_x-5, row_h-name_h-4, 14, false, nil, true)
+            y = y + row_h
+        end
     end
     self:drawButton(bb, {text="‹ RIVAL", callback=function() self.page=2; UIManager:setDirty(self,"ui") end},
         margin, controls_y, math.floor((w - margin * 3) / 2), control_h, scale)
@@ -1279,7 +1525,7 @@ function BeholdCamelot:startPlayAction(index)
     local rows = {}
     for _, option in ipairs(options) do
         local chosen = option
-        rows[#rows + 1] = {{text=chosen.label, callback=function() self:beginAction(index, chosen) end}}
+        rows[#rows + 1] = {{text=expandResLabel(chosen.label), callback=function() self:beginAction(index, chosen) end}}
     end
     rows[#rows + 1] = {{text=_("Cancel"), callback=function() self:showGame() end}}
     self:showOverlay(ButtonDialog:new{modal=true, title="Choose how to play " .. self:cardName(id), buttons=rows})
@@ -1324,7 +1570,7 @@ function BeholdCamelot:beginAction(index, option)
     end
     if spec.store_materials_by_bags then
         local count = 0
-        for _, controlled_id in ipairs(self.game.controlled) do count=count+(Scoring.faces[controlled_id][self.game.levels[controlled_id]].keys.bag or 0) end
+        for _, controlled_id in ipairs(self.game.controlled) do count=count+(Scoring.faces[controlled_id][self.game.levels[controlled_id]].keys.coin or 0) end
         spec.store_materials = count
     end
     if spec.store_opposite then
@@ -1346,7 +1592,7 @@ function BeholdCamelot:beginAction(index, option)
         self.game.action.used.special=true
         self.game.action.notices={"Gawain added 1 to the pending conquest strength."}
     end
-    self.game.last_event = "Playing " .. self:cardName(id) .. ": " .. spec.label
+    self.game.last_event = "Playing " .. self:cardName(id) .. ": " .. expandResLabel(spec.label)
     self:save()
     self:continueActionCosts()
 end
@@ -1411,7 +1657,7 @@ function BeholdCamelot:chooseSpecialInputs()
     local marches=a.spec.marches_discard
     local zone=marches and self.game.hand or self.game.controlled
     for index,id in ipairs(zone) do
-        local amount=marches and (Scoring.faces[id][self.game.levels[id]].keys.bag or 0) or (self:holdingWealth(id) or 0)
+        local amount=marches and (Scoring.faces[id][self.game.levels[id]].keys.coin or 0) or (self:holdingWealth(id) or 0)
         if not (marches and id=="gaul" and self.game.levels[id]==1) then
             local chosen,chosen_id=index,id
             rows[#rows+1]={{hold_callback=function() self:previewCard(id) end,text=(marches and "Discard " or "Abandon ")..self:cardLabel(id).." (+"..amount..")",callback=function()
@@ -1434,7 +1680,7 @@ function BeholdCamelot:chooseSpecialInputs()
         rows[#rows+1]={{text="Develop "..a.input_total,callback=function() ready("develop") end},{text="Degrade "..a.input_total,callback=function() ready("degrade") end}}
     end
     rows[#rows+1]={{text="Undo entire action",callback=function() self:cancelUnpaidAction("Special action cancelled.") end}}
-    self:showOverlay(ButtonDialog:new{modal=true,title=(marches and "Cornwall: discarded bag icons " or "Abandoned wealth ")..a.input_total,buttons=rows})
+    self:showOverlay(ButtonDialog:new{modal=true,title=(marches and "Cornwall: discarded coin icons " or "Abandoned wealth ")..a.input_total,buttons=rows})
 end
 
 function BeholdCamelot:chooseRepetitions()
@@ -1495,7 +1741,7 @@ function BeholdCamelot:continueActionCosts(selected)
             self:save(); self:showActionResolution()
         end
         if trigger.optional then
-            self:showOverlay(ButtonDialog:new{modal=true,title=trigger.label,buttons={
+            self:showOverlay(ButtonDialog:new{modal=true,title=expandResLabel(trigger.label),buttons={
                 {{text="Resolve trigger",callback=function() resume(true) end}},
                 {{text="Decline trigger",callback=function() resume(false) end}},
             }})
@@ -1713,7 +1959,7 @@ function BeholdCamelot:showActionResolution()
     if spec.passive or spec.on_conquer then action.used.passive = true end
     rows[#rows + 1] = {{text=_("Finish action"), callback=function() self:finishAction() end}}
     rows[#rows + 1] = {{text=_("Undo entire action"), callback=function() self:cancelUnpaidAction("The action was undone.") end}}
-    self:showOverlay(ButtonDialog:new{modal=true, title="Resolve " .. self:cardName(action.source) .. "\n\n" .. (spec.label or "Triggered effect"), buttons=rows})
+    self:showOverlay(ButtonDialog:new{modal=true, title="Resolve " .. self:cardName(action.source) .. "\n\n" .. expandResLabel(spec.label or "Triggered effect"), buttons=rows})
 end
 
 function BeholdCamelot:payPerUse(kind, amount, after)
@@ -2924,7 +3170,7 @@ function BeholdCamelot:showScoring()
     for _,card in ipairs(CARDS) do lines[#lines+1] = self:cardName(card.id)..": "..s.cards[card.id] end
     lines[#lines+1]="\n"..self:rivalScoreText(s)
     lines[#lines+1] = "\nICON LEGEND / TOTALS:"
-    for _,key in ipairs(Scoring.order) do lines[#lines+1] = Scoring.symbols[key].." = "..key..": "..s.keys[key] end
+    for _,key in ipairs(Scoring.order) do lines[#lines+1] = key..": "..s.keys[key] end
     lines[#lines+1] = "\nCamelot wins only with strictly more Renown than its rival."
     if self.game.rival=="Lucius" then lines[#lines+1]="Lucius materials term counts printed available-material icons across the civilization, not stored materials (confirmed)." end
     self:showOverlay(TextViewer:new{ modal=true, title=_("Behold: Camelot - live score"), text=table.concat(lines,"\n") })
@@ -2943,7 +3189,7 @@ function BeholdCamelot:showStrategy(rival)
     self:showOverlay(TextViewer:new{
         modal=true,
         title=_("Strategy vs ") .. rival,
-        text=(STRATEGIES[rival] or STRATEGIES["Chronicle of the Realm"]).."\n\nBanner legend: [M] materials, [P] population, /\\ Holding wealth. Keying: X| military; (+) wheel; |U| lyre; ($) bag; \\|/ sprout; ::: luxury; \\_/> ship. Numbers are printed counts, not currently stored resources.",
+        text=(STRATEGIES[rival] or STRATEGIES["Chronicle of the Realm"]).."\n\nBanner legend: card bands show resource icons (anvil = materials, bust = population, tower = Holding wealth). Keying icons (see the icon legend on the Realm screen): military (sword behind shield), transport, culture, coin, crops, luxury, navy. Numbers are printed counts, not currently stored resources.",
     })
 end
 
