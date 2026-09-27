@@ -775,13 +775,19 @@ function BeholdCamelotGameScreen:drawFace(bb, id, level, x, y, w, h, compact, ac
         local white = band_text == Blitbuffer.COLOR_WHITE
         self:drawKeyIcons(bb, icons, x+5, y+border+row_h+2, icon_size, white)
     end
+    -- PLAY state moves to the banner's second row, right side (was in body text).
+    local play_text = "PLAY: " .. shortPlay(face.play)
+    self:drawFittedText(bb, play_text, x+w-right_w, y+border+row_h, right_w-5, row_h,
+        compact and 7 or 9, true, band_text)
     local name_y = y + band_h + border
     local name_h = math.max(22, math.floor(h * 0.20))
-    self:drawFittedText(bb, card.names[level], x + 5, name_y, w - 10, name_h,
+    local name_text = card.names[level]
+    if self.plugin:isReminded(id) then name_text = "★ " .. name_text end
+    self:drawFittedText(bb, name_text, x + 5, name_y, w - 10, name_h,
         compact and 14 or 19, true, Blitbuffer.COLOR_BLACK)
     local info_y = name_y + name_h
     local stats=Scoring.faces[id][level]
-    local body={"PLAY: "..shortPlay(face.play),face.effect or "No printed action.",
+    local body={face.effect or "No printed action.",
         "Renown: "..Scoring.rules[id][level],"Unrest "..stats.unrest.." / Prosperity "..stats.prosperity}
     if face.requirement then body[#body+1]="DEVELOP: "..face.requirement end
     self:drawFittedText(bb,table.concat(body,"\n"),x+5,info_y,w-10,y+h-info_y-5,
@@ -1050,6 +1056,7 @@ function BeholdCamelot:init()
         self.game.rival_modifier=self.game.rival_modifier or 0
         if self.game.foresight==nil then self.game.foresight=false end
         if self.game.fluid_round==nil then self.game.fluid_round=false end
+        if self.game.reminders==nil then self.game.reminders={} end
     end
     self.ui.menu:registerToMainMenu(self)
 end
@@ -2407,6 +2414,7 @@ function BeholdCamelot:newGame(rival, setup)
         round_end=false,
         finished=false,
         last_event="Camelot's story begins.",
+        reminders={},
     }
     self.undo_game = nil
     self:drawToFive()
@@ -2524,6 +2532,21 @@ function BeholdCamelot:gameActionButtons()
     return buttons
 end
 
+function BeholdCamelot:toggleReminder(id)
+    self.game.reminders = self.game.reminders or {}
+    if self.game.reminders[id] then
+        self.game.reminders[id] = nil
+    else
+        self.game.reminders[id] = true
+    end
+    self:saveGame()
+    self:refreshBoard(false)
+end
+
+function BeholdCamelot:isReminded(id)
+    return self.game.reminders and self.game.reminders[id] or false
+end
+
 function BeholdCamelot:focusedCardActions(index)
     if self.game.action then
         local id=self.game.hand[index]
@@ -2543,9 +2566,11 @@ function BeholdCamelot:focusedCardActions(index)
     end
     local id = self.game.hand[index]
     if not id then return {} end
+    local reminder_text = self:isReminded(id) and _("Un-remind") or _("Remind me")
     return {
         { text=_("Play action"), callback=function() self:startPlayAction(index) end },
         { text=_("Full text"), callback=function() self:showFullCardText(id) end },
+        { text=reminder_text, callback=function() self:toggleReminder(id) end },
         { text=_("End turn / discard"), callback=function() self:discardHand(index, true) end },
     }
 end
