@@ -2,6 +2,12 @@
 
 An Arthurian realm builder card game for KOReader. Build your realm through 16 cards with four orientations each, gather resources, establish Holdings, and outscore a chosen rival.
 
+## Screenshots
+
+![Full hand](screenshots/gameplay-full-hand.png)
+![Realm view](screenshots/gameplay-realm.png)
+![Rival breakdown](screenshots/gameplay-rival.png)
+
 ## Install
 
 Copy `beholdcamelot.koplugin` into `/koreader/plugins/`, restart KOReader, and open **Tools > Behold: Camelot**.
