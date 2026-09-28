@@ -1562,10 +1562,14 @@ function BeholdCamelot:isCardPlayable(id)
     local materials, population = self:storedSummary()
     local hand_size = #self.game.hand
     
-    -- Check if any card can be degraded (level > 1)
-    local has_degradable = false
+    -- Count degradable cards (level > 1)
+    local degradable_count = 0
+    local degradable_court_count = 0
     for card_id, level in pairs(self.game.levels) do
-        if level > 1 then has_degradable = true; break end
+        if level > 1 then
+            degradable_count = degradable_count + 1
+            if card_id:find("court") then degradable_court_count = degradable_court_count + 1 end
+        end
     end
     
     for _, option in ipairs(options) do
@@ -1579,16 +1583,10 @@ function BeholdCamelot:isCardPlayable(id)
             if (costs.population or 0) > population then can_afford = false end
             -- Check discard costs (need other cards in hand to discard)
             if (costs.discard or 0) >= hand_size then can_afford = false end
-            -- Check degrade costs (need a card with level > 1)
-            if (costs.degrade or 0) > 0 and not has_degradable then can_afford = false end
-            -- Check degrade_court (need a Court card with level > 1)
-            if (costs.degrade_court or 0) > 0 then
-                local has_court = false
-                for card_id, level in pairs(self.game.levels) do
-                    if level > 1 and card_id:find("court") then has_court = true; break end
-                end
-                if not has_court then can_afford = false end
-            end
+            -- Check degrade costs (need enough cards with level > 1)
+            if (costs.degrade or 0) > degradable_count then can_afford = false end
+            -- Check degrade_court (need enough Court cards with level > 1)
+            if (costs.degrade_court or 0) > degradable_court_count then can_afford = false end
             
             if can_afford then return true end
         end
