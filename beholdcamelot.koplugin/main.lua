@@ -1002,7 +1002,7 @@ function BeholdCamelotGameScreen:paintFocus(bb, scale, margin, gap, header_h)
         -- Playability icon: check for playable, X for not (when setting enabled)
         if show_playable then
             local icon = is_playable and "✓" or "✗"
-            self:drawText(bb, icon, tx + tab_w - 14, tabs_y + 2, 12, 10, false, nil, true)
+            self:drawText(bb, icon, tx + tab_w - 14, tabs_y + 2, 12, 10, 7, false, nil, true)
         end
         local chosen = hand_index
         self:addTapHolding(tx, tabs_y, tab_w, tab_h, function() self:focus(chosen) end)
