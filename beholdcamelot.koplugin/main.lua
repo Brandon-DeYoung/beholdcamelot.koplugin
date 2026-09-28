@@ -18,6 +18,38 @@ local _ = require("gettext")
 local Scoring = dofile((debug.getinfo(1, "S").source:match("^@(.*/)") or "") .. "scoring.lua")
 local PLUGIN_DIR = (debug.getinfo(1, "S").source:match("^@(.*/)") or "")
 
+-- Hide simpleUI topbar while Behold is active (prevents clock/WiFi overlay on game).
+-- Saves the current state and restores it when the game closes.
+local _topbar_was_hidden = false
+local _topbar_original_state = nil
+local function _hideSimpleUITopbar()
+    if _topbar_was_hidden then return end
+    local ok, SUISettings = pcall(require, "infra/sui_store")
+    if not ok or not SUISettings then return end
+    _topbar_original_state = SUISettings:nilOrTrue("simpleui_topbar_enabled")
+    if _topbar_original_state then
+        SUISettings:saveSetting("simpleui_topbar_enabled", false)
+        local ok2, Topbar = pcall(require, "screens/sui_topbar")
+        if ok2 and Topbar and Topbar.invalidateDimCache then
+            Topbar.invalidateDimCache()
+        end
+        _topbar_was_hidden = true
+    end
+end
+local function _restoreSimpleUITopbar()
+    if not _topbar_was_hidden then return end
+    local ok, SUISettings = pcall(require, "infra/sui_store")
+    if ok and SUISettings and _topbar_original_state ~= nil then
+        SUISettings:saveSetting("simpleui_topbar_enabled", _topbar_original_state)
+        local ok2, Topbar = pcall(require, "screens/sui_topbar")
+        if ok2 and Topbar and Topbar.invalidateDimCache then
+            Topbar.invalidateDimCache()
+        end
+    end
+    _topbar_was_hidden = false
+    _topbar_original_state = nil
+end
+
 -- Keying icons are original black/white PNGs in icons/ (not game assets).
 -- White variants (*_w.png) are for dark card bands; ImageWidget scales them
 -- to fit the requested box, keeping aspect ratio.
@@ -956,13 +988,21 @@ function BeholdCamelotGameScreen:paintFocus(bb, scale, margin, gap, header_h)
     local tabs_y = header_h + gap
     local tab_w = math.floor((w - margin * 2 - gap * math.max(0, #self.plugin.game.hand - 1))
         / math.max(1, #self.plugin.game.hand))
+    local show_playable = self.plugin:showPlayableEnabled()
     for hand_index, hand_id in ipairs(self.plugin.game.hand) do
         local tx = margin + (hand_index - 1) * (tab_w + gap)
         local selected = hand_index == index
+        local is_playable = show_playable and self.plugin:isCardPlayable(hand_id)
         bb:paintRect(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
             selected and tab_h or math.floor(tab_h * 0.75), selected and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_LIGHT_GRAY)
-        bb:paintBorder(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
-            selected and tab_h or math.floor(tab_h * 0.75), 1, Blitbuffer.COLOR_BLACK)
+        -- Green border for playable cards (when setting is enabled)
+        if is_playable then
+            bb:paintBorder(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
+                selected and tab_h or math.floor(tab_h * 0.75), 3, Blitbuffer.COLOR_GREEN)
+        else
+            bb:paintBorder(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
+                selected and tab_h or math.floor(tab_h * 0.75), 1, Blitbuffer.COLOR_BLACK)
+        end
         self:drawText(bb, string.format("%d %s", self.plugin.game.levels[hand_id], CARD_BY_ID[hand_id].names[self.plugin.game.levels[hand_id]]),
             tx + 2, tabs_y, tab_w - 4, tab_h, 7, selected, nil, true)
         local chosen = hand_index
@@ -1095,6 +1135,7 @@ function BeholdCamelot:closeDialog()
         UIManager:close(self.dialog)
         self.dialog = nil
     end
+    _restoreSimpleUITopbar()
 end
 
 function BeholdCamelot:closeOverlay(refresh)
@@ -1501,6 +1542,28 @@ end
 function BeholdCamelot:actionOptions(id)
     local levels = ACTIONS[id]
     return levels and levels[self.game.levels[id]] or {{label="Play as a passive card", passive=true}}
+end
+
+-- Returns true if the card in hand has a playable (non-passive) action and is legal to play.
+-- Used for the "show playable cards" highlight setting.
+function BeholdCamelot:isCardPlayable(id)
+    if not self:isPlayLegal(id) then return false end
+    local options = self:actionOptions(id)
+    for _, option in ipairs(options) do
+        if not option.passive then return true end
+    end
+    return false
+end
+
+function BeholdCamelot:showPlayableEnabled()
+    return self.settings and self.settings:readSetting("show_playable") ~= false
+end
+
+function BeholdCamelot:toggleShowPlayable()
+    local current = self:showPlayableEnabled()
+    self.settings:saveSetting("show_playable", not current)
+    self.settings:flush()
+    return not current
 end
 
 function BeholdCamelot:startPlayAction(index)
@@ -2277,6 +2340,7 @@ end
 
 function BeholdCamelot:showMainMenu()
     self:closeDialog()
+    _hideSimpleUITopbar()
     local buttons = {}
     if self.game and not self.game.finished then
         buttons[#buttons + 1] = {{
@@ -2287,6 +2351,14 @@ function BeholdCamelot:showMainMenu()
     buttons[#buttons + 1] = {{
         text = _("New game"),
         callback = function() self:chooseRival() end,
+    }}
+    local playable_text = self:showPlayableEnabled() and _("Hide playable cards") or _("Show playable cards")
+    buttons[#buttons + 1] = {{
+        text = playable_text,
+        callback = function()
+            self:toggleShowPlayable()
+            self:showMainMenu()
+        end,
     }}
     buttons[#buttons + 1] = {
         { text=_("About"), callback=function() self:showAbout() end },
