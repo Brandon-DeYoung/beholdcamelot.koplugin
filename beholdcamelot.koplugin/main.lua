@@ -2108,7 +2108,9 @@ end
 
 function BeholdCamelot:canDevelopInto(id, new_level)
     if new_level > 4 then return false, "already at level 4" end
-    if not self:isPlayLegal(id, new_level, true) then return false, "the new face's banner is illegal" end
+    -- Per the rulebook (Banner glossary): "You do not need to be the correct
+    -- nation status/condition to discard, develop, or degrade the card;
+    -- just to play or conquer it." So no banner check here.
     local face = FACE_DATA[id] and FACE_DATA[id][new_level] or {}
     if face.requirement and face.requirement:find("Galahad", 1, true)
         and not (self.game.levels.council == 1 and self:isCardActive("council")) then
