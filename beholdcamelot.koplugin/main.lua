@@ -295,7 +295,7 @@ local FACE_DATA = {
         {store="1 material", play="Crown-era only (The Crown/The Fellowship)", effect="During conquest, increase its strength by 1. If The Round Table discards this card, refill to six cards after that action."},
         {store="1 material", play="Quest-era only (Arthur's Empire/The Grail Quest)", effect="Spend 1 population to generate Store 2 materials. When this card is discarded for a different action, you may Draw 1."},
         {store="1 material", play="Quest-era only (Arthur's Empire/The Grail Quest)", effect="Generate Store materials equal to the total coin icons on controlled Holdings."},
-        {store="No available resource", play="Any realm", effect="While active, Quest-era banners do not prevent playing cards. Development and conquest still obey banners. Scoring is -5 in the Crown era, plus 9 if Sarras is active."},
+        {store="No available resource", play="Any realm", effect="While active, Quest-era banners do not prevent playing cards. Scoring is -5 in the Crown era, plus 9 if Sarras is active."},
     },
     lake={
         {store="2 materials", play="Crown-era only (The Crown/The Fellowship)", effect="After storing population, you may place Guinevere into storage for free, using her printed material value."},
