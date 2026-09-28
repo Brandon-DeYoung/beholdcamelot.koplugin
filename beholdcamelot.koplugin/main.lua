@@ -954,11 +954,14 @@ function BeholdCamelotGameScreen:paintOverview(bb, scale, margin, gap, header_h)
         if self.plugin:showPlayableEnabled() then
             local playability = self.plugin:cardPlayability(id)
             local icon = playability == 2 and "✓" or (playability == 1 and "!" or "✗")
-            -- Draw icon in top-right corner of card with white background for visibility
-            local icon_size = 16
-            bb:paintRect(cx + card_w - icon_size - 4, cy + 4, icon_size, icon_size, Blitbuffer.COLOR_WHITE)
-            bb:paintBorder(cx + card_w - icon_size - 4, cy + 4, icon_size, icon_size, 1, Blitbuffer.COLOR_BLACK)
-            self:drawText(bb, icon, cx + card_w - icon_size - 4, cy + 4, icon_size, icon_size, 10, true, nil, false)
+            -- Draw icon in top-right corner with solid white background
+            local icon_x = cx + card_w - 22
+            local icon_y = cy + 2
+            bb:paintRect(icon_x, icon_y, 20, 20, Blitbuffer.COLOR_WHITE)
+            bb:paintBorder(icon_x, icon_y, 20, 20, 1, Blitbuffer.COLOR_BLACK)
+            -- Center the icon: drawText centers horizontally when align_left=false,
+            -- and vertically centers within h; use h=20 to match box
+            self:drawText(bb, icon, icon_x, icon_y, 20, 20, 12, true, nil, false)
         end
         local chosen = index
         self:addTapHolding(cx, cy, card_w, card_h, function() self:focus(chosen) end)
