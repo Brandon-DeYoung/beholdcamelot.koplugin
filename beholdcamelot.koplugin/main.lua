@@ -2658,8 +2658,20 @@ function BeholdCamelot:gameActionButtons()
         buttons[#buttons + 1] = { text=_("Discard top / end turn"), callback=function() self:endTurnTop() end }
     end
     local stored_materials, stored_population, stored_count = self:storedSummary()
-    buttons[#buttons + 1] = { text=string.format("Stored (%d)",stored_count), callback=function() self:showStored() end }
-    buttons[#buttons + 1] = { text=string.format("Holdings (%d)",#self.game.controlled), callback=function() self:showControlled() end }
+    buttons[#buttons + 1] = {
+        text=string.format(_("Stored (%d) / Holdings (%d)"), stored_count, #self.game.controlled),
+        callback=function()
+            self:showOverlay(ButtonDialog:new{
+                title=_("View stored resources or controlled holdings?"),
+                buttons={
+                    {
+                        {text=_("Stored"), callback=function() self:closeOverlay(); self:showStored() end},
+                        {text=_("Holdings"), callback=function() self:closeOverlay(); self:showControlled() end},
+                    },
+                },
+            })
+        end,
+    }
     buttons[#buttons + 1] = { text=_("Strategy"), callback=function() self:showStrategy() end }
     buttons[#buttons + 1] = { text=_("Realm / Rival / Icons"), callback=function() self:showRealm() end }
     if self.game.foresight then buttons[#buttons + 1] = { text=_("Inspect pile"), callback=function() self:showDeckOrder() end } end
