@@ -950,6 +950,16 @@ function BeholdCamelotGameScreen:paintOverview(bb, scale, margin, gap, header_h)
         local col, row = (index - 1) % card_cols, math.floor((index - 1) / card_cols)
         local cx, cy = margin + col * (card_w + gap), cards_y + row * (card_h + gap)
         self:drawDoubleCard(bb, id, cx, cy, card_w, card_h, true)
+        -- Playability icon overlay: ✓ playable, ! playable but does nothing, ✗ not playable
+        if self.plugin:showPlayableEnabled() then
+            local playability = self.plugin:cardPlayability(id)
+            local icon = playability == 2 and "✓" or (playability == 1 and "!" or "✗")
+            -- Draw icon in top-right corner of card with white background for visibility
+            local icon_size = 16
+            bb:paintRect(cx + card_w - icon_size - 4, cy + 4, icon_size, icon_size, Blitbuffer.COLOR_WHITE)
+            bb:paintBorder(cx + card_w - icon_size - 4, cy + 4, icon_size, icon_size, 1, Blitbuffer.COLOR_BLACK)
+            self:drawText(bb, icon, cx + card_w - icon_size - 4, cy + 4, icon_size, icon_size, 10, true, nil, false)
+        end
         local chosen = index
         self:addTapHolding(cx, cy, card_w, card_h, function() self:focus(chosen) end)
     end
@@ -992,16 +1002,16 @@ function BeholdCamelotGameScreen:paintFocus(bb, scale, margin, gap, header_h)
     for hand_index, hand_id in ipairs(self.plugin.game.hand) do
         local tx = margin + (hand_index - 1) * (tab_w + gap)
         local selected = hand_index == index
-        local is_playable = show_playable and self.plugin:isCardPlayable(hand_id)
         bb:paintRect(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
             selected and tab_h or math.floor(tab_h * 0.75), selected and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_LIGHT_GRAY)
         bb:paintBorder(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
             selected and tab_h or math.floor(tab_h * 0.75), 1, Blitbuffer.COLOR_BLACK)
         self:drawText(bb, string.format("%d %s", self.plugin.game.levels[hand_id], CARD_BY_ID[hand_id].names[self.plugin.game.levels[hand_id]]),
             tx + 2, tabs_y, tab_w - 4, tab_h, 7, selected, nil, true)
-        -- Playability icon: check for playable, X for not (when setting enabled)
+        -- Playability icon: ✓ playable, ! playable but does nothing, ✗ not playable
         if show_playable then
-            local icon = is_playable and "✓" or "✗"
+            local playability = self.plugin:cardPlayability(hand_id)
+            local icon = playability == 2 and "✓" or (playability == 1 and "!" or "✗")
             self:drawText(bb, icon, tx + tab_w - 14, tabs_y + 2, 12, 10, 7, false, nil, true)
         end
         local chosen = hand_index
@@ -1553,14 +1563,17 @@ function BeholdCamelot:actionOptions(id)
     return levels and levels[self.game.levels[id]] or {{label="Play as a passive card", passive=true}}
 end
 
--- Returns true if the card in hand has a playable (non-passive) action and is legal to play.
--- Checks resource costs (materials/population), discard/degrade availability.
+-- Returns playability state for the card in hand:
+--   2 = playable and does something useful
+--   1 = playable but does nothing (e.g., needs controlled holdings but has none)
+--   0 = not playable (passive only, illegal, or can't afford costs)
 -- Used for the "show playable cards" highlight setting.
-function BeholdCamelot:isCardPlayable(id)
-    if not self:isPlayLegal(id) then return false end
+function BeholdCamelot:cardPlayability(id)
+    if not self:isPlayLegal(id) then return 0 end
     local options = self:actionOptions(id)
     local materials, population = self:storedSummary()
     local hand_size = #self.game.hand
+    local controlled = #self.game.controlled
     
     -- Count degradable cards (level > 1)
     local degradable_count = 0
@@ -1572,6 +1585,7 @@ function BeholdCamelot:isCardPlayable(id)
         end
     end
     
+    local best = 0
     for _, option in ipairs(options) do
         if not option.passive then
             local costs = option.costs or {}
@@ -1588,10 +1602,23 @@ function BeholdCamelot:isCardPlayable(id)
             -- Check degrade_court (need enough Court cards with level > 1)
             if (costs.degrade_court or 0) > degradable_court_count then can_afford = false end
             
-            if can_afford then return true end
+            if can_afford then
+                -- Check if it does nothing (needs controlled holdings but has none)
+                local needs_holdings = option.develop_controlled or option.store_population_by_holdings
+                if needs_holdings and controlled == 0 then
+                    best = math.max(best, 1)  -- playable but pointless
+                else
+                    return 2  -- playable and useful
+                end
+            end
         end
     end
-    return false
+    return best
+end
+
+-- Legacy wrapper: returns true if playable (state 2)
+function BeholdCamelot:isCardPlayable(id)
+    return self:cardPlayability(id) == 2
 end
 
 function BeholdCamelot:showPlayableEnabled()
@@ -2636,6 +2663,8 @@ function BeholdCamelot:gameActionButtons()
     buttons[#buttons + 1] = { text=_("Strategy"), callback=function() self:showStrategy() end }
     buttons[#buttons + 1] = { text=_("Realm / Rival / Icons"), callback=function() self:showRealm() end }
     if self.game.foresight then buttons[#buttons + 1] = { text=_("Inspect pile"), callback=function() self:showDeckOrder() end } end
+    local playable_text = self:showPlayableEnabled() and _("Hide playable") or _("Show playable")
+    buttons[#buttons + 1] = { text=playable_text, callback=function() self:toggleShowPlayable(); self:refreshBoard() end }
     buttons[#buttons + 1] = { text=_("Correct game state"), callback=function() self:showCorrectionMenu() end }
     buttons[#buttons + 1] = { text=_("Undo"), callback=function() self:undo() end }
     buttons[#buttons + 1] = { text=_("Finish & score"), callback=function() self:confirmFinish() end }
