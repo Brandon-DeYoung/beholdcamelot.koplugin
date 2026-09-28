@@ -995,16 +995,15 @@ function BeholdCamelotGameScreen:paintFocus(bb, scale, margin, gap, header_h)
         local is_playable = show_playable and self.plugin:isCardPlayable(hand_id)
         bb:paintRect(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
             selected and tab_h or math.floor(tab_h * 0.75), selected and Blitbuffer.COLOR_WHITE or Blitbuffer.COLOR_LIGHT_GRAY)
-        -- Thick black border for playable cards (visible on e-ink; green doesn't show)
-        if is_playable then
-            bb:paintBorder(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
-                selected and tab_h or math.floor(tab_h * 0.75), 3, Blitbuffer.COLOR_BLACK)
-        else
-            bb:paintBorder(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
-                selected and tab_h or math.floor(tab_h * 0.75), 1, Blitbuffer.COLOR_BLACK)
-        end
+        bb:paintBorder(tx, tabs_y + (selected and 0 or math.floor(tab_h * 0.25)), tab_w,
+            selected and tab_h or math.floor(tab_h * 0.75), 1, Blitbuffer.COLOR_BLACK)
         self:drawText(bb, string.format("%d %s", self.plugin.game.levels[hand_id], CARD_BY_ID[hand_id].names[self.plugin.game.levels[hand_id]]),
             tx + 2, tabs_y, tab_w - 4, tab_h, 7, selected, nil, true)
+        -- Playability icon: check for playable, X for not (when setting enabled)
+        if show_playable then
+            local icon = is_playable and "✓" or "✗"
+            self:drawText(bb, icon, tx + tab_w - 14, tabs_y + 2, 12, 10, false, nil, true)
+        end
         local chosen = hand_index
         self:addTapHolding(tx, tabs_y, tab_w, tab_h, function() self:focus(chosen) end)
     end
@@ -1555,14 +1554,19 @@ function BeholdCamelot:actionOptions(id)
 end
 
 -- Returns true if the card in hand has a playable (non-passive) action and is legal to play.
--- Checks resource costs (materials/population) and controlled region requirements.
+-- Checks resource costs (materials/population), discard/degrade availability.
 -- Used for the "show playable cards" highlight setting.
 function BeholdCamelot:isCardPlayable(id)
     if not self:isPlayLegal(id) then return false end
     local options = self:actionOptions(id)
     local materials, population = self:storedSummary()
     local hand_size = #self.game.hand
-    local controlled = #self.game.controlled
+    
+    -- Check if any card can be degraded (level > 1)
+    local has_degradable = false
+    for card_id, level in pairs(self.game.levels) do
+        if level > 1 then has_degradable = true; break end
+    end
     
     for _, option in ipairs(options) do
         if not option.passive then
@@ -1573,15 +1577,18 @@ function BeholdCamelot:isCardPlayable(id)
             if (costs.materials or 0) > materials then can_afford = false end
             -- Check population costs
             if (costs.population or 0) > population then can_afford = false end
-            -- Check discard costs (need other cards in hand)
+            -- Check discard costs (need other cards in hand to discard)
             if (costs.discard or 0) >= hand_size then can_afford = false end
-            -- Check if action requires controlled holdings but none exist
-            if (option.develop_controlled or option.store_population_by_holdings) and controlled == 0 then
-                -- These can still be played (they just do nothing), so don't block
-                -- But degrade_court/discarard_court need a court card
+            -- Check degrade costs (need a card with level > 1)
+            if (costs.degrade or 0) > 0 and not has_degradable then can_afford = false end
+            -- Check degrade_court (need a Court card with level > 1)
+            if (costs.degrade_court or 0) > 0 then
+                local has_court = false
+                for card_id, level in pairs(self.game.levels) do
+                    if level > 1 and card_id:find("court") then has_court = true; break end
+                end
+                if not has_court then can_afford = false end
             end
-            -- For degrade costs, simplified check: need at least 1 card that can be degraded
-            -- (full check is complex, so we allow it and let the cost chooser handle it)
             
             if can_afford then return true end
         end
@@ -2645,7 +2652,7 @@ function BeholdCamelot:toggleReminder(id)
     else
         self.game.reminders[id] = true
     end
-    self:saveGame()
+    self:save()
     self:refreshBoard(false)
 end
 
